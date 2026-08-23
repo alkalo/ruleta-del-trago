@@ -10,7 +10,8 @@
     "dev:client": "vite",
     "build": "vite build",
     "start": "tsx server/src/index.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check:challenges": "tsx scripts/check-challenges.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
