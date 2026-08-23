@@ -65,9 +65,22 @@ export default function Game() {
       return room?.activeSpin ?? null;
     }
     if (room?.activeSpin) return room.activeSpin;
-    if (lastSpinResult) return lastSpinResult;
+    if (
+      lastSpinResult &&
+      ((room?.currentTargets?.length ?? 0) > 0 ||
+        (room?.currentChallenge && room.phase === "challenge"))
+    ) {
+      return lastSpinResult;
+    }
     return null;
-  }, [lastSpinResult, localSpinning, room?.activeSpin, room?.phase]);
+  }, [
+    lastSpinResult,
+    localSpinning,
+    room?.activeSpin,
+    room?.currentChallenge,
+    room?.currentTargets,
+    room?.phase,
+  ]);
 
   const resolvedTargets = room?.resolvedTargets ?? [];
   const pendingTargets =
@@ -269,6 +282,7 @@ export default function Game() {
       {(phase === "challenge" || phase === "spinning") && (
         <>
           <RouletteWheel
+            key={`${room.spinWinnerId ?? "idle"}-${room.round}-${phase}`}
             names={names}
             spinning={localSpinning || phase === "spinning"}
             winnerIndex={syncedWinner}

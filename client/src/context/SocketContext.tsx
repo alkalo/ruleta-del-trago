@@ -180,14 +180,19 @@ function ackEmit(
   socket: Socket,
   event: string,
   payload: unknown,
-  timeoutMs = 8000
+  timeoutMs = 15000
 ): Promise<AckRes> {
   return new Promise((resolve, reject) => {
     socket
       .timeout(timeoutMs)
       .emit(event, payload, (err: Error | null, res: AckRes) => {
         if (err) {
-          reject(new RoomRejoinError("expired", "La sala expiró. Crea otra."));
+          reject(
+            new RoomRejoinError(
+              "failed",
+              "El servidor no responde. Reinténtalo."
+            )
+          );
           return;
         }
         resolve(res ?? { ok: false });
@@ -195,12 +200,14 @@ function ackEmit(
   });
 }
 
-function waitConnected(socket: Socket, timeoutMs = 8000): Promise<void> {
+function waitConnected(socket: Socket, timeoutMs = 15000): Promise<void> {
   if (socket.connected) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
       socket.off("connect", onConnect);
-      reject(new RoomRejoinError("expired", "La sala expiró. Crea otra."));
+      reject(
+        new RoomRejoinError("failed", "Sin conexión. Reinténtalo en unos segundos.")
+      );
     }, timeoutMs);
     const onConnect = () => {
       window.clearTimeout(timer);
@@ -637,6 +644,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     if (!socket) throw new Error("Sin conexión al servidor");
     const res = await playAck(socket, "host:continue", sessionPayload());
     if (res.ok && res.room) {
+      setLastSpinResult(null);
       setRoom(res.room);
       return res.room;
     }

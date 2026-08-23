@@ -382,11 +382,13 @@ io.on("connection", (socket) => {
         | { code?: string; name?: string; clientKey?: string }
         | ((res: {
             ok: boolean;
+            room?: unknown;
             spinResult?: unknown;
             error?: string;
           }) => void),
       maybeCb?: (res: {
         ok: boolean;
+        room?: unknown;
         spinResult?: unknown;
         error?: string;
       }) => void
@@ -420,6 +422,7 @@ io.on("connection", (socket) => {
       emitRoom(currentCode);
       callback({
         ok: true,
+        room: outcome.room,
         spinResult: {
           targets: outcome.targets,
           mode: outcome.mode,
@@ -477,7 +480,11 @@ io.on("connection", (socket) => {
 
   function handlePlayerMark(
     event: "player:drank" | "player:completed" | "player:skipped",
-    mark: (code: string, playerId: string) => ReturnType<typeof rooms.playerMarkDrank>
+    mark: (
+      code: string,
+      playerId: string,
+      identity?: { name?: string; clientKey?: string }
+    ) => ReturnType<typeof rooms.playerMarkDrank>
   ) {
     socket.on(
       event,
@@ -507,7 +514,10 @@ io.on("connection", (socket) => {
           return;
         }
         currentCode = code;
-        const room = mark(code, socket.id);
+        const room = mark(code, socket.id, {
+          name: explicit?.name,
+          clientKey: explicit?.clientKey,
+        });
         if (!room) {
           safeAck(callback, {
             ok: false,
@@ -521,12 +531,14 @@ io.on("connection", (socket) => {
     );
   }
 
-  handlePlayerMark("player:drank", (code, id) => rooms.playerMarkDrank(code, id));
-  handlePlayerMark("player:completed", (code, id) =>
-    rooms.playerMarkCompleted(code, id)
+  handlePlayerMark("player:drank", (code, id, identity) =>
+    rooms.playerMarkDrank(code, id, identity)
   );
-  handlePlayerMark("player:skipped", (code, id) =>
-    rooms.playerMarkSkipped(code, id)
+  handlePlayerMark("player:completed", (code, id, identity) =>
+    rooms.playerMarkCompleted(code, id, identity)
+  );
+  handlePlayerMark("player:skipped", (code, id, identity) =>
+    rooms.playerMarkSkipped(code, id, identity)
   );
 
   function handleHostMark(

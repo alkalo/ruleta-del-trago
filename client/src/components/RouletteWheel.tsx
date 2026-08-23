@@ -159,7 +159,10 @@ export default function RouletteWheel({
       }
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      sounds.stop();
+    };
   }, [spinning, winnerIndex, names.length, turns]);
 
   if (names.length === 0) {

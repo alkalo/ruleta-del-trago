@@ -82,7 +82,7 @@ export default function DrunkCheckModal({
         Beber no sube el medidor: solo lo actualizas aquí, en tu móvil.
       </p>
 
-      {!submitted && (
+      {!submitted && me && (
         <>
           <div className="slider-row">
             <label className="label">
@@ -106,6 +106,13 @@ export default function DrunkCheckModal({
             Confirmar mi nivel
           </button>
         </>
+      )}
+
+      {!me && (
+        <p className="muted">
+          No te reconocemos en esta sala. Recarga o entra de nuevo con el mismo
+          nombre.
+        </p>
       )}
 
       {submitted && (

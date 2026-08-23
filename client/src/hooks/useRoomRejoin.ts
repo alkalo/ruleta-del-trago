@@ -10,10 +10,10 @@ export interface RoomLoadError {
   message: string;
 }
 
-const REJOIN_TIMEOUT_MS = 8000;
+const REJOIN_TIMEOUT_MS = 20000;
 
 export function useRoomRejoin(code: string | undefined) {
-  const { room, socket, rejoinByCode } = useSocket();
+  const { room, socket, connected, rejoinByCode } = useSocket();
   const [loadError, setLoadError] = useState<RoomLoadError | null>(null);
   const roomRef = useRef(room);
   roomRef.current = room;
@@ -23,16 +23,20 @@ export function useRoomRejoin(code: string | undefined) {
       setLoadError(null);
       return;
     }
+    if (!connected) return;
     const id = window.setTimeout(() => {
       if (!roomRef.current) {
-        clearPlayerSession();
         setLoadError((prev) =>
-          prev ?? { kind: "expired", message: "La sala expiró. Crea otra." }
+          prev ?? {
+            kind: "failed",
+            message:
+              "No se pudo entrar. Recarga o ve a inicio y crea otra sala.",
+          }
         );
       }
     }, REJOIN_TIMEOUT_MS);
     return () => window.clearTimeout(id);
-  }, [room, code]);
+  }, [room, code, connected]);
 
   useEffect(() => {
     const normalized = code?.trim().toUpperCase();
@@ -40,7 +44,7 @@ export function useRoomRejoin(code: string | undefined) {
       setLoadError({ kind: "expired", message: "La sala expiró. Crea otra." });
       return;
     }
-    if (room || !socket) return;
+    if (room || !socket || !connected) return;
 
     let cancelled = false;
     void rejoinByCode(normalized).then(
@@ -70,7 +74,7 @@ export function useRoomRejoin(code: string | undefined) {
     return () => {
       cancelled = true;
     };
-  }, [code, room, socket, rejoinByCode]);
+  }, [code, room, socket, connected, rejoinByCode]);
 
   return { loadError };
 }

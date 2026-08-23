@@ -704,44 +704,82 @@ export class RoomManager {
     return result;
   }
 
-  playerMarkDrank(code: string, playerId: string): RoomState | null {
-    const room = this.getRoom(code);
-    if (!room || !room.activeSpin?.targets.includes(playerId)) return null;
-    if (room.resolvedTargets.includes(playerId)) {
-      clearSpinIfResolved(room);
-      return room;
+  private resolveActionPlayerId(
+    room: RoomState,
+    playerId: string,
+    identity?: { name?: string; clientKey?: string }
+  ): string | null {
+    if (room.activeSpin?.targets.includes(playerId)) return playerId;
+    const byKey = identity?.clientKey
+      ? room.players.find((p) => p.clientKey === identity.clientKey)
+      : undefined;
+    if (byKey) {
+      if (byKey.id !== playerId) {
+        const oldId = byKey.id;
+        if (byKey.isHost) room.hostId = playerId;
+        byKey.id = playerId;
+        byKey.connected = true;
+        remapPlayerId(room, oldId, playerId);
+      }
+      if (room.activeSpin?.targets.includes(playerId)) return playerId;
     }
-    const result = this.markDrank(code, playerId);
-    if (!result) return null;
-    result.resolvedTargets.push(playerId);
-    clearSpinIfResolved(result);
-    return result;
+    const byName = identity?.name?.trim()
+      ? room.players.find(
+          (p) => p.name.toLowerCase() === identity.name!.trim().toLowerCase()
+        )
+      : undefined;
+    if (byName && room.activeSpin?.targets.includes(byName.id)) {
+      return byName.id;
+    }
+    return null;
   }
 
-  playerMarkCompleted(code: string, playerId: string): RoomState | null {
-    const room = this.getRoom(code);
-    if (!room || !room.activeSpin?.targets.includes(playerId)) return null;
-    if (room.resolvedTargets.includes(playerId)) {
-      clearSpinIfResolved(room);
-      return room;
-    }
-    const result = this.markCompleted(code, playerId);
-    if (!result) return null;
-    result.resolvedTargets.push(playerId);
-    clearSpinIfResolved(result);
-    return result;
+  playerMarkDrank(
+    code: string,
+    playerId: string,
+    identity?: { name?: string; clientKey?: string }
+  ): RoomState | null {
+    return this.playerMark(code, playerId, identity, "drank");
   }
 
-  playerMarkSkipped(code: string, playerId: string): RoomState | null {
+  playerMarkCompleted(
+    code: string,
+    playerId: string,
+    identity?: { name?: string; clientKey?: string }
+  ): RoomState | null {
+    return this.playerMark(code, playerId, identity, "completed");
+  }
+
+  playerMarkSkipped(
+    code: string,
+    playerId: string,
+    identity?: { name?: string; clientKey?: string }
+  ): RoomState | null {
+    return this.playerMark(code, playerId, identity, "skipped");
+  }
+
+  private playerMark(
+    code: string,
+    playerId: string,
+    identity: { name?: string; clientKey?: string } | undefined,
+    action: "drank" | "completed" | "skipped"
+  ): RoomState | null {
     const room = this.getRoom(code);
-    if (!room || !room.activeSpin?.targets.includes(playerId)) return null;
-    if (room.resolvedTargets.includes(playerId)) {
+    if (!room) return null;
+    const id = this.resolveActionPlayerId(room, playerId, identity);
+    if (!id || !room.activeSpin?.targets.includes(id)) return null;
+    if (room.resolvedTargets.includes(id)) {
       clearSpinIfResolved(room);
       return room;
     }
-    const result = this.markSkipped(code, playerId);
+    const result =
+      action === "drank"
+        ? this.markDrank(code, id)
+        : action === "completed"
+          ? this.markCompleted(code, id)
+          : this.markSkipped(code, id);
     if (!result) return null;
-    result.resolvedTargets.push(playerId);
+    result.resolvedTargets.push(id);
     clearSpinIfResolved(result);
     return result;
   }

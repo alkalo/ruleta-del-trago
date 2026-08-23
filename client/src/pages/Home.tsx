@@ -5,11 +5,24 @@ import { BIRTHDAY_NAME } from "../constants/birthday";
 
 export default function Home() {
   const navigate = useNavigate();
-  const { createRoom, connected } = useSocket();
+  const { createRoom, connected, socket } = useSocket();
 
   const handleCreate = async () => {
     sounds.click();
     try {
+      if (!socket) throw new Error("Sin conexión. Recarga la página.");
+      if (!socket.connected) {
+        await new Promise<void>((resolve, reject) => {
+          const t = window.setTimeout(
+            () => reject(new Error("El servidor tarda. Recarga e inténtalo.")),
+            15000
+          );
+          socket.once("connect", () => {
+            window.clearTimeout(t);
+            resolve();
+          });
+        });
+      }
       const room = await createRoom();
       navigate(`/host/setup?code=${room.code}`);
     } catch (e) {
@@ -51,7 +64,7 @@ export default function Home() {
         </div>
       )}
 
-      <button className="btn btn-primary" onClick={handleCreate} disabled={!connected}>
+      <button className="btn btn-primary" onClick={handleCreate}>
         Crear sala (soy host)
       </button>
 

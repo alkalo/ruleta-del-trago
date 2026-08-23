@@ -94,6 +94,10 @@ export default function HostSetup() {
       alert("No hay código de sala. Vuelve a crear la partida.");
       return;
     }
+    if (!hostName.trim()) {
+      alert("Pon tu nombre para que salga en la ruleta.");
+      return;
+    }
     if (!hostGender) {
       alert("Elige tu género: lo usamos para emparejar retos.");
       return;
@@ -348,7 +352,7 @@ export default function HostSetup() {
             className="btn btn-cyan"
             onClick={finish}
             style={{ flex: 2 }}
-            disabled={!hostGender}
+            disabled={!hostGender || !hostName.trim()}
           >
             Abrir lobby
           </button>
