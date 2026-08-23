@@ -15,8 +15,8 @@ function fail(msg: string) {
 }
 
 const pack = INITIAL_CHALLENGES;
-if (pack.length < 140 || pack.length > 200) {
-  fail(`Pack fuera de rango 140–200: ${pack.length}`);
+if (pack.length < 250 || pack.length > 400) {
+  fail(`Pack fuera de rango 250–400: ${pack.length}`);
 }
 
 const ids = pack.map((c) => c.id);
