@@ -9,6 +9,7 @@ import StatsPanel from "../components/StatsPanel";
 import ChallengeCard from "../components/ChallengeCard";
 import VictoryScreen from "../components/VictoryScreen";
 import type { GameMode } from "@shared/types";
+import { BIRTHDAY_NAME, isBirthdayName } from "../constants/birthday";
 
 export default function Game() {
   const { code } = useParams<{ code: string }>();
@@ -228,7 +229,14 @@ export default function Game() {
                     <h2 style={{ color: "var(--yellow)" }}>
                       👉 {player.name}
                       {player.isFino && " (FINO)"}
+                      {isBirthdayName(player.name) && " 🎂"}
                     </h2>
+                    {isBirthdayName(player.name) && (
+                      <div className="alert-banner birthday-spin-toast">
+                        🎉 ¡Feliz cumpleaños, {BIRTHDAY_NAME}! La ruleta te
+                        eligió en tu noche. Que el caos sea legendario.
+                      </div>
+                    )}
                     <ChallengeCard
                       challenge={challenge}
                       mode={mode}

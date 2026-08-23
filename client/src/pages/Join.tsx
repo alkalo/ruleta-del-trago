@@ -4,6 +4,7 @@ import { useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
 import type { Gender } from "@shared/types";
 import GenderPicker from "../components/GenderPicker";
+import { isBirthdayName } from "../constants/birthday";
 
 export default function Join() {
   const navigate = useNavigate();
@@ -70,6 +71,9 @@ export default function Join() {
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
+      {isBirthdayName(name) && (
+        <p className="birthday-home-tagline">🎂 Bru, hoy se juega por ti.</p>
+      )}
 
       <div className="slider-row">
         <label className="label">

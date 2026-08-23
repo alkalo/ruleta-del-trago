@@ -11,6 +11,7 @@ import type {
   Gender,
 } from "@shared/types";
 import GenderPicker from "../components/GenderPicker";
+import { isBirthdayName } from "../constants/birthday";
 import {
   ALL_VIBES,
   ALL_CHALLENGE_TYPES,
@@ -266,6 +267,9 @@ export default function HostSetup() {
             value={hostName}
             onChange={(e) => setHostName(e.target.value)}
           />
+          {isBirthdayName(hostName) && (
+            <p className="birthday-home-tagline">🎂 Bru, hoy se juega por ti.</p>
+          )}
           <div className="slider-row">
             <label className="label">Tu nivel (1–10): {hostDrunk}</label>
             <input

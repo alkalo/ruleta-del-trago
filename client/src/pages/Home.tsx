@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
+import { BIRTHDAY_NAME } from "../constants/birthday";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -18,8 +19,11 @@ export default function Home() {
 
   return (
     <div>
-      <div className="logo-emoji">🍻🎰</div>
+      <div className="logo-emoji">🍻🎰🎂</div>
       <h1>Ruleta del Trago</h1>
+      <p className="birthday-home-tagline">
+        Edición cumple de {BIRTHDAY_NAME}: globos, confeti y brindis extra.
+      </p>
       <p className="muted" style={{ marginBottom: 24 }}>
         La ruleta decide. Tú cumples. El grupo juzga. Objetivo: llegar a fino sin
         pasarse (7.5–8.5). Meme mode activado.

@@ -1,5 +1,6 @@
 import type { Player } from "@shared/types";
 import { GENDER_LABELS } from "@shared/types";
+import { isBirthdayName } from "../constants/birthday";
 
 interface Props {
   players: Player[];
@@ -11,10 +12,16 @@ export default function PlayerList({ players, title }: Props) {
     <div className="card">
       {title && <h3>{title} ({players.length})</h3>}
       {players.map((p) => (
-        <div key={p.id} className="player-row">
+        <div
+          key={p.id}
+          className={`player-row${isBirthdayName(p.name) ? " player-row-birthday" : ""}`}
+        >
           <div>
             <strong>{p.name}</strong>
             {p.isHost && <span className="badge">HOST</span>}
+            {isBirthdayName(p.name) && (
+              <span className="badge badge-birthday">🎂 cumple</span>
+            )}
             {p.gender && (
               <span className="muted" style={{ marginLeft: 6, fontSize: "0.75rem" }}>
                 {GENDER_LABELS[p.gender]}

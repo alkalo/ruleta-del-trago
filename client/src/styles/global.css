@@ -42,7 +42,9 @@ body {
   min-height: 100vh;
   max-width: 480px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 40px 16px 16px;
+  position: relative;
+  z-index: 2;
 }
 
 h1,
@@ -397,6 +399,167 @@ p {
 
 @media (min-width: 500px) {
   .app-shell {
-    padding: 24px;
+    padding: 48px 24px 24px;
+  }
+}
+
+/* —— Fiesta de cumple (Bru) —— */
+.birthday-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.birthday-bunting {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 8px;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.birthday-pennant {
+  width: 18px;
+  height: 22px;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  box-shadow: 0 0 8px currentColor;
+  flex-shrink: 0;
+}
+
+.birthday-balloon {
+  position: fixed;
+  top: 30px;
+  z-index: 3;
+  animation: balloon-bob 3.6s ease-in-out infinite;
+}
+
+.birthday-balloon-body {
+  display: block;
+  width: 26px;
+  height: 34px;
+  background: currentColor;
+  border-radius: 50% 50% 48% 48% / 58% 58% 42% 42%;
+  box-shadow:
+    0 0 16px currentColor,
+    inset -6px -8px 10px rgba(0, 0, 0, 0.18);
+}
+
+.birthday-balloon-string {
+  display: block;
+  width: 1px;
+  height: 40px;
+  margin: 0 auto;
+  background: rgba(248, 240, 255, 0.4);
+}
+
+.birthday-confetti-piece {
+  position: fixed;
+  top: -16px;
+  width: 7px;
+  height: 11px;
+  border-radius: 1px;
+  opacity: 0.72;
+  z-index: 1;
+  animation-name: confetti-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.birthday-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  letter-spacing: 0.05em;
+  color: #0a0014;
+  background: linear-gradient(90deg, var(--yellow), var(--pink), var(--cyan), var(--yellow));
+  background-size: 240% 100%;
+  animation: birthday-shine 5s linear infinite;
+  border-radius: 12px;
+  box-shadow:
+    0 0 22px rgba(254, 228, 64, 0.4),
+    0 0 12px rgba(255, 0, 110, 0.25);
+}
+
+.birthday-home-tagline {
+  font-family: var(--font-display);
+  color: var(--cyan);
+  text-align: center;
+  letter-spacing: 0.04em;
+  margin: 0 0 10px;
+  text-shadow: 0 0 12px rgba(0, 245, 212, 0.45);
+}
+
+.birthday-spin-toast {
+  background: linear-gradient(135deg, rgba(254, 228, 64, 0.18), rgba(255, 0, 110, 0.2));
+  border: 1px solid var(--yellow);
+  color: var(--text);
+  text-align: center;
+  font-weight: 600;
+  box-shadow: 0 0 16px rgba(254, 228, 64, 0.2);
+}
+
+.player-row-birthday {
+  background: linear-gradient(90deg, rgba(254, 228, 64, 0.12), rgba(255, 0, 110, 0.14));
+  border-radius: 10px;
+  padding: 10px 8px;
+  box-shadow: 0 0 14px rgba(254, 228, 64, 0.18);
+}
+
+.badge-birthday {
+  background: linear-gradient(135deg, var(--yellow), var(--pink));
+  color: #0a0014;
+  margin-left: 6px;
+  animation: pulse 1.2s infinite;
+}
+
+@keyframes balloon-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-8vh) rotate(0deg);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(110vh) rotate(540deg);
+    opacity: 0.12;
+  }
+}
+
+@keyframes birthday-shine {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .birthday-balloon,
+  .birthday-confetti-piece,
+  .birthday-banner,
+  .badge-birthday {
+    animation: none;
   }
 }

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
 import PlayerList from "../components/PlayerList";
+import { BIRTHDAY_NAME, hasBirthdayPlayer } from "../constants/birthday";
 
 export default function Lobby() {
   const { code } = useParams<{ code: string }>();
@@ -71,6 +72,12 @@ export default function Lobby() {
 
       {!connected && (
         <div className="alert-banner alert-warning">Reconectando…</div>
+      )}
+
+      {hasBirthdayPlayer(players) && (
+        <div className="alert-banner birthday-spin-toast">
+          🎂 {BIRTHDAY_NAME} está en la sala. ¡Hoy se brinda por el cumpleañero!
+        </div>
       )}
 
       <PlayerList players={players} title="En la sala" />
