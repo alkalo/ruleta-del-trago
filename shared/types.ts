@@ -29,6 +29,15 @@ export type OrientationPref =
 
 export type ContentLevel = "suave" | "medio" | "picante" | "sin_limite";
 
+export type Gender = "hombre" | "mujer" | "otro";
+
+export function normalizeGender(gender?: string | null): Gender {
+  if (gender === "hombre" || gender === "mujer" || gender === "otro") {
+    return gender;
+  }
+  return "otro";
+}
+
 export interface Challenge {
   id: string;
   type: ChallengeType;
@@ -53,6 +62,7 @@ export interface GameSettings {
 export interface Player {
   id: string;
   name: string;
+  gender?: Gender;
   drunkLevel: number;
   drinksAlcohol: boolean;
   isHost: boolean;
@@ -103,6 +113,7 @@ export interface SpinResult {
   mode: GameMode;
   challenge: Challenge;
   drinkAmounts: Record<string, number>;
+  skipDrinkAmounts?: Record<string, number>;
   soberAlternatives: Record<string, string>;
   displayTexts: Record<string, string>;
 }
@@ -149,6 +160,14 @@ export const CONTENT_LEVEL_LABELS: Record<ContentLevel, string> = {
   picante: "Picante",
   sin_limite: "Sin límite",
 };
+
+export const GENDER_LABELS: Record<Gender, string> = {
+  hombre: "Hombre",
+  mujer: "Mujer",
+  otro: "Otro / no binario",
+};
+
+export const ALL_GENDERS: Gender[] = ["hombre", "mujer", "otro"];
 
 export const ALL_VIBES: Vibe[] = [
   "locura",

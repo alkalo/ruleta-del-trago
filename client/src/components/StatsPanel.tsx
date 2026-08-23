@@ -22,7 +22,7 @@ export default function StatsPanel({ players }: Props) {
         {players.map((p) => (
           <div key={p.id} className="stat-box">
             <div className="stat-value">{p.drunkLevel}</div>
-            <div className="stat-label">{p.name} borracho</div>
+            <div className="stat-label">{p.name} · última pausa</div>
             <div className="muted" style={{ fontSize: "0.65rem" }}>
               🍺{p.stats.drinksTaken} · 🎯{p.stats.timesSelected} · ✓
               {p.stats.challengesCompleted}

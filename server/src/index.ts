@@ -5,7 +5,7 @@ import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 import { RoomManager } from "./roomManager.js";
-import type { GameSettings } from "../../shared/types.js";
+import type { GameSettings, Gender } from "../../shared/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -33,6 +33,12 @@ function resolveRoomAssociation(
   if (currentCode) return currentCode;
   if (!explicitCode) return null;
 
+  const existing = rooms.getRoom(explicitCode);
+  if (existing?.hostId === socket.id) {
+    socket.join(existing.code);
+    return existing.code;
+  }
+
   const room = rooms.rejoinHost(explicitCode, socket.id);
   if (!room) return null;
 
@@ -40,16 +46,23 @@ function resolveRoomAssociation(
   return room.code;
 }
 
-// Serve static in production
+function playerMarkError(code: string | null, playerId: string): string {
+  if (!code) return "No estás en la sala. Recarga la página para reconectar.";
+  const room = rooms.getRoom(code);
+  if (!room) return "Sala no encontrada. Recarga la página.";
+  if (!room.activeSpin) return "No hay reto activo.";
+  if (!room.activeSpin.targets.includes(playerId)) {
+    return "Este reto no es para ti. Si acabas de reconectar, recarga.";
+  }
+  return "No se pudo marcar el reto.";
+}
+
 const distPath = path.join(__dirname, "../../dist");
 app.use(express.static(distPath));
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 app.get("*", (req, res, next) => {
-  if (
-    req.path.startsWith("/socket.io") ||
-    req.path.startsWith("/api")
-  ) {
+  if (req.path.startsWith("/socket.io") || req.path.startsWith("/api")) {
     return next();
   }
   res.sendFile(path.join(distPath, "index.html"), (err) => {
@@ -75,6 +88,7 @@ io.on("connection", (socket) => {
         name: string;
         drunkLevel: number;
         drinksAlcohol: boolean;
+        gender?: Gender;
       },
       callback
     ) => {
@@ -83,7 +97,8 @@ io.on("connection", (socket) => {
         socket.id,
         data.name,
         data.drunkLevel,
-        data.drinksAlcohol
+        data.drinksAlcohol,
+        data.gender
       );
       if (!room) {
         callback({ ok: false, error: "No se puede unir a la sala" });
@@ -96,27 +111,21 @@ io.on("connection", (socket) => {
     }
   );
 
-  socket.on(
-    "room:rejoinHost",
-    (data: { code: string }, callback) => {
-      const room = rooms.rejoinHost(data.code, socket.id);
-      if (!room) {
-        callback({ ok: false, error: "Sala no encontrada o expiró" });
-        return;
-      }
-      currentCode = room.code;
-      socket.join(room.code);
-      emitRoom(room.code);
-      callback({ ok: true, room });
+  socket.on("room:rejoinHost", (data: { code: string }, callback) => {
+    const room = rooms.rejoinHost(data.code, socket.id);
+    if (!room) {
+      callback({ ok: false, error: "Sala no encontrada o expiró" });
+      return;
     }
-  );
+    currentCode = room.code;
+    socket.join(room.code);
+    emitRoom(room.code);
+    callback({ ok: true, room });
+  });
 
   socket.on(
     "host:settings",
-    (
-      payload: { code?: string; settings: GameSettings },
-      callback
-    ) => {
+    (payload: { code?: string; settings: GameSettings }, callback) => {
       const code = resolveRoomAssociation(socket, currentCode, payload.code);
       if (!code) {
         callback({
@@ -150,7 +159,12 @@ io.on("connection", (socket) => {
 
   socket.on(
     "host:updateProfile",
-    (data: { name?: string; drunkLevel?: number; drinksAlcohol?: boolean }) => {
+    (data: {
+      name?: string;
+      drunkLevel?: number;
+      drinksAlcohol?: boolean;
+      gender?: Gender;
+    }) => {
       if (!currentCode) return;
       rooms.updateHostProfile(currentCode, socket.id, data);
       emitRoom(currentCode);
@@ -171,81 +185,112 @@ io.on("connection", (socket) => {
     callback({ ok: true, room });
   });
 
-  socket.on("host:spin", (callback) => {
+  socket.on(
+    "host:spin",
+    (
+      payloadOrCb:
+        | { code?: string }
+        | ((res: { ok: boolean; room?: unknown; error?: string }) => void),
+      maybeCb?: (res: { ok: boolean; room?: unknown; error?: string }) => void
+    ) => {
+      const callback =
+        typeof payloadOrCb === "function" ? payloadOrCb : maybeCb;
+      if (!callback) return;
+      const explicitCode =
+        typeof payloadOrCb === "object" && payloadOrCb
+          ? payloadOrCb.code
+          : undefined;
+      const code = resolveRoomAssociation(socket, currentCode, explicitCode);
+      if (!code) {
+        callback({
+          ok: false,
+          error: "No estás en la sala. Recarga la página para reconectar.",
+        });
+        return;
+      }
+      currentCode = code;
+      const { room, error } = rooms.beginSpin(code, socket.id);
+      if (!room) {
+        callback({ ok: false, error: error ?? "No se pudo girar" });
+        return;
+      }
+      emitRoom(code);
+      callback({ ok: true, room });
+    }
+  );
+
+  socket.on(
+    "host:spinComplete",
+    (
+      payloadOrCb:
+        | { code?: string }
+        | ((res: {
+            ok: boolean;
+            spinResult?: unknown;
+            error?: string;
+          }) => void),
+      maybeCb?: (res: {
+        ok: boolean;
+        spinResult?: unknown;
+        error?: string;
+      }) => void
+    ) => {
+      const callback =
+        typeof payloadOrCb === "function" ? payloadOrCb : maybeCb;
+      if (!callback) return;
+      const explicitCode =
+        typeof payloadOrCb === "object" && payloadOrCb
+          ? payloadOrCb.code
+          : undefined;
+      const associated = resolveRoomAssociation(
+        socket,
+        currentCode,
+        explicitCode
+      );
+      if (!associated) {
+        callback({
+          ok: false,
+          error: "No estás en la sala. Recarga la página para reconectar.",
+        });
+        return;
+      }
+      currentCode = associated;
+      const result = rooms.completeSpin(currentCode, socket.id);
+      if (!result.ok) {
+        emitRoom(currentCode);
+        callback({ ok: false, error: result.error });
+        return;
+      }
+      const outcome = result.outcome;
+      emitRoom(currentCode);
+      callback({
+        ok: true,
+        spinResult: {
+          targets: outcome.targets,
+          mode: outcome.mode,
+          challenge: outcome.challenge,
+          drinkAmounts: outcome.drinkAmounts,
+          skipDrinkAmounts: outcome.skipDrinkAmounts,
+          soberAlternatives: outcome.soberAlternatives,
+          displayTexts: outcome.displayTexts,
+        },
+      });
+    }
+  );
+
+  socket.on("player:submitDrunkLevel", (data: { level: number }, callback) => {
     if (!currentCode) {
-      callback({ ok: false });
+      callback({ ok: false, error: "Sin sala" });
       return;
     }
-    const room = rooms.beginSpin(currentCode, socket.id);
+    const room = rooms.submitDrunkLevel(currentCode, socket.id, data.level);
     if (!room) {
-      callback({ ok: false });
+      callback({ ok: false, error: "No se pudo confirmar" });
       return;
     }
     emitRoom(currentCode);
     callback({ ok: true, room });
   });
-
-  socket.on("host:spinComplete", (callback) => {
-    if (!currentCode) {
-      callback({ ok: false });
-      return;
-    }
-    const outcome = rooms.completeSpin(currentCode, socket.id);
-    if (!outcome) {
-      callback({ ok: false });
-      return;
-    }
-    emitRoom(currentCode);
-    callback({
-      ok: true,
-      spinResult: {
-        targets: outcome.targets,
-        mode: outcome.mode,
-        challenge: outcome.challenge,
-        drinkAmounts: outcome.drinkAmounts,
-        soberAlternatives: outcome.soberAlternatives,
-        displayTexts: outcome.displayTexts,
-      },
-    });
-  });
-
-  socket.on(
-    "game:drunkLevels",
-    (updates: Record<string, number>, callback) => {
-      if (!currentCode) {
-        callback({ ok: false });
-        return;
-      }
-      const room = rooms.updateDrunkLevels(currentCode, updates);
-      if (!room) {
-        callback({ ok: false });
-        return;
-      }
-      emitRoom(currentCode);
-      callback({ ok: true, room });
-    }
-  );
-
-  socket.on(
-    "player:submitDrunkLevel",
-    (data: { level: number }, callback) => {
-      if (!currentCode) {
-        callback({ ok: false, error: "Sin sala" });
-        return;
-      }
-      const room = rooms.submitDrunkLevel(
-        currentCode,
-        socket.id,
-        data.level
-      );
-      if (!room) {
-        callback({ ok: false, error: "No se pudo confirmar" });
-        return;
-      }
-      emitRoom(currentCode);
-      callback({ ok: true, room });
-    }
-  );
 
   socket.on("game:finishDrunkCheck", (callback) => {
     if (!currentCode) {
@@ -263,12 +308,12 @@ io.on("connection", (socket) => {
 
   socket.on("player:drank", (callback) => {
     if (!currentCode) {
-      callback({ ok: false });
+      callback({ ok: false, error: playerMarkError(currentCode, socket.id) });
       return;
     }
     const room = rooms.playerMarkDrank(currentCode, socket.id);
     if (!room) {
-      callback({ ok: false, error: "No aplicable" });
+      callback({ ok: false, error: playerMarkError(currentCode, socket.id) });
       return;
     }
     emitRoom(currentCode);
@@ -277,12 +322,12 @@ io.on("connection", (socket) => {
 
   socket.on("player:completed", (callback) => {
     if (!currentCode) {
-      callback({ ok: false });
+      callback({ ok: false, error: playerMarkError(currentCode, socket.id) });
       return;
     }
     const room = rooms.playerMarkCompleted(currentCode, socket.id);
     if (!room) {
-      callback({ ok: false, error: "No aplicable" });
+      callback({ ok: false, error: playerMarkError(currentCode, socket.id) });
       return;
     }
     emitRoom(currentCode);
@@ -291,76 +336,59 @@ io.on("connection", (socket) => {
 
   socket.on("player:skipped", (callback) => {
     if (!currentCode) {
-      callback({ ok: false });
+      callback({ ok: false, error: playerMarkError(currentCode, socket.id) });
       return;
     }
     const room = rooms.playerMarkSkipped(currentCode, socket.id);
     if (!room) {
-      callback({ ok: false, error: "No aplicable" });
+      callback({ ok: false, error: playerMarkError(currentCode, socket.id) });
       return;
     }
     emitRoom(currentCode);
     callback({ ok: true });
   });
 
-  socket.on(
-    "host:markDrank",
-    (targetPlayerId: string, callback) => {
-      if (!currentCode) {
-        callback({ ok: false });
-        return;
-      }
-      const room = rooms.hostMarkDrank(currentCode, socket.id, targetPlayerId);
-      if (!room) {
-        callback({ ok: false });
-        return;
-      }
-      emitRoom(currentCode);
-      callback({ ok: true });
+  socket.on("host:markDrank", (targetPlayerId: string, callback) => {
+    if (!currentCode) {
+      callback({ ok: false });
+      return;
     }
-  );
+    const room = rooms.hostMarkDrank(currentCode, socket.id, targetPlayerId);
+    if (!room) {
+      callback({ ok: false });
+      return;
+    }
+    emitRoom(currentCode);
+    callback({ ok: true });
+  });
 
-  socket.on(
-    "host:markCompleted",
-    (targetPlayerId: string, callback) => {
-      if (!currentCode) {
-        callback({ ok: false });
-        return;
-      }
-      const room = rooms.hostMarkCompleted(
-        currentCode,
-        socket.id,
-        targetPlayerId
-      );
-      if (!room) {
-        callback({ ok: false });
-        return;
-      }
-      emitRoom(currentCode);
-      callback({ ok: true });
+  socket.on("host:markCompleted", (targetPlayerId: string, callback) => {
+    if (!currentCode) {
+      callback({ ok: false });
+      return;
     }
-  );
+    const room = rooms.hostMarkCompleted(currentCode, socket.id, targetPlayerId);
+    if (!room) {
+      callback({ ok: false });
+      return;
+    }
+    emitRoom(currentCode);
+    callback({ ok: true });
+  });
 
-  socket.on(
-    "host:markSkipped",
-    (targetPlayerId: string, callback) => {
-      if (!currentCode) {
-        callback({ ok: false });
-        return;
-      }
-      const room = rooms.hostMarkSkipped(
-        currentCode,
-        socket.id,
-        targetPlayerId
-      );
-      if (!room) {
-        callback({ ok: false });
-        return;
-      }
-      emitRoom(currentCode);
-      callback({ ok: true });
+  socket.on("host:markSkipped", (targetPlayerId: string, callback) => {
+    if (!currentCode) {
+      callback({ ok: false });
+      return;
     }
-  );
+    const room = rooms.hostMarkSkipped(currentCode, socket.id, targetPlayerId);
+    if (!room) {
+      callback({ ok: false });
+      return;
+    }
+    emitRoom(currentCode);
+    callback({ ok: true });
+  });
 
   socket.on("host:continue", (callback) => {
     if (!currentCode) {

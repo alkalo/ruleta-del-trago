@@ -1,4 +1,5 @@
 import type { Player } from "@shared/types";
+import { GENDER_LABELS } from "@shared/types";
 
 interface Props {
   players: Player[];
@@ -14,6 +15,11 @@ export default function PlayerList({ players, title }: Props) {
           <div>
             <strong>{p.name}</strong>
             {p.isHost && <span className="badge">HOST</span>}
+            {p.gender && (
+              <span className="muted" style={{ marginLeft: 6, fontSize: "0.75rem" }}>
+                {GENDER_LABELS[p.gender]}
+              </span>
+            )}
             {!p.drinksAlcohol && (
               <span className="badge badge-sober">SOBRE</span>
             )}
@@ -24,7 +30,7 @@ export default function PlayerList({ players, title }: Props) {
                 style={{ width: `${(p.drunkLevel / 10) * 100}%` }}
               />
             </div>
-            <span className="muted">{p.drunkLevel}/10</span>
+            <span className="muted">{p.drunkLevel}/10 (última pausa)</span>
           </div>
           <div className="muted" style={{ fontSize: "0.75rem" }}>
             🍺 {p.stats.drinksTaken} · ✓ {p.stats.challengesCompleted}

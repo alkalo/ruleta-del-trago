@@ -41,14 +41,18 @@ export default function Game() {
   const names = spinNames.length > 0 ? spinNames : players.map((p) => p.name);
 
   const spinDisplay = useMemo(() => {
-    if (lastSpinResult) return lastSpinResult;
     if (room?.activeSpin) return room.activeSpin;
+    if (lastSpinResult) return lastSpinResult;
     return null;
   }, [lastSpinResult, room?.activeSpin]);
 
   const resolvedTargets = room?.resolvedTargets ?? [];
   const pendingTargets =
-    spinDisplay?.targets?.filter((tid) => !resolvedTargets.includes(tid)) ?? [];
+    (room?.activeSpin?.targets ?? room?.currentTargets ?? []).filter(
+      (tid) =>
+        !resolvedTargets.includes(tid) &&
+        (room?.players.some((p) => p.id === tid) ?? false)
+    );
 
   const canSpin =
     isHost &&
@@ -76,8 +80,8 @@ export default function Game() {
       setLocalSpinning(true);
       const idx = Math.floor(Math.random() * names.length);
       setWinnerIndex(idx);
-    } catch {
-      alert("Completa la ronda antes de girar otra vez");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo girar");
     }
   };
 
@@ -86,8 +90,8 @@ export default function Game() {
     if (!isHost) return;
     try {
       await completeSpin();
-    } catch {
-      alert("Error al completar giro");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Error al completar giro");
     }
   }, [isHost, completeSpin]);
 
@@ -108,8 +112,8 @@ export default function Game() {
       if (action === "drank") await markDrank();
       else if (action === "completed") await markCompleted();
       else await markSkipped();
-    } catch {
-      /* ignore */
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo marcar el reto");
     }
   };
 
@@ -208,8 +212,13 @@ export default function Game() {
             </p>
           )}
 
-          {challenge && mode && spin && (
+          {challenge && mode && (spin || targets.length > 0) && (
             <>
+              {targets.length > 1 && (
+                <p className="muted" style={{ textAlign: "center" }}>
+                  Cada uno bebe según SU nivel (el de la última pausa).
+                </p>
+              )}
               {targets.map((tid) => {
                 const player = players.find((p) => p.id === tid);
                 if (!player) return null;
@@ -223,9 +232,10 @@ export default function Game() {
                     <ChallengeCard
                       challenge={challenge}
                       mode={mode}
-                      displayText={spin.displayTexts[tid] ?? challenge.text}
-                      drinkAmount={spin.drinkAmounts[tid]}
-                      soberAlternative={spin.soberAlternatives[tid]}
+                      displayText={spin?.displayTexts?.[tid] ?? challenge.text}
+                      drinkAmount={spin?.drinkAmounts?.[tid]}
+                      skipDrinkAmount={spin?.skipDrinkAmounts?.[tid]}
+                      soberAlternative={spin?.soberAlternatives?.[tid]}
                       drinksAlcohol={player.drinksAlcohol}
                       isTarget={playerId === tid}
                       onDrank={() => handleAction(tid, "drank")}
@@ -239,7 +249,7 @@ export default function Game() {
             </>
           )}
 
-          {!spin && !localSpinning && phase === "challenge" && (
+          {!spin && !challenge && !localSpinning && phase === "challenge" && (
             <div className="card">
               <p className="muted">
                 {isHost

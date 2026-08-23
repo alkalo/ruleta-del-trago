@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
+import type { Gender } from "@shared/types";
+import GenderPicker from "../components/GenderPicker";
 
 export default function Join() {
   const navigate = useNavigate();
@@ -11,6 +13,7 @@ export default function Join() {
   const [name, setName] = useState("");
   const [drunkLevel, setDrunkLevel] = useState(5);
   const [drinksAlcohol, setDrinksAlcohol] = useState(true);
+  const [gender, setGender] = useState<Gender | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -19,7 +22,7 @@ export default function Join() {
   }, [searchParams]);
 
   const handleJoin = async () => {
-    if (!code.trim() || !name.trim()) return;
+    if (!code.trim() || !name.trim() || !gender) return;
     sounds.click();
     setLoading(true);
     try {
@@ -27,7 +30,8 @@ export default function Join() {
         code.trim().toUpperCase(),
         name.trim(),
         drunkLevel,
-        drinksAlcohol
+        drinksAlcohol,
+        gender
       );
       if (room.phase === "lobby") {
         navigate(`/lobby/${room.code}`);
@@ -69,7 +73,7 @@ export default function Join() {
 
       <div className="slider-row">
         <label className="label">
-          ¿Cómo vas de borracho? ({drunkLevel}/10)
+          ¿Cómo vas? Tu nivel (1–10): {drunkLevel}
         </label>
         <input
           type="range"
@@ -100,20 +104,25 @@ export default function Join() {
               sounds.click();
             }}
           >
-            🧃 Sobrio/a (pero igual de loco)
+            🧃 Sin alcohol (igual de caos)
           </button>
         </div>
         {!drinksAlcohol && (
           <p className="muted">
-            Designado responsable del caos. Castigos alternativos meme garantizados.
+            Designado responsable del caos. Castigos alternativos meme
+            garantizados.
           </p>
         )}
+      </div>
+
+      <div className="card">
+        <GenderPicker value={gender} onChange={setGender} />
       </div>
 
       <button
         className="btn btn-primary"
         onClick={handleJoin}
-        disabled={!connected || loading || !code || !name}
+        disabled={!connected || loading || !code || !name || !gender}
       >
         {loading ? "Entrando…" : "Entrar a la sala"}
       </button>

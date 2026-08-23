@@ -7,7 +7,8 @@ import {
   type ReactNode,
 } from "react";
 import { io, Socket } from "socket.io-client";
-import type { RoomState, GameSettings, Challenge } from "@shared/types";
+import type { RoomState, GameSettings, Challenge, Gender } from "@shared/types";
+import { normalizeGender } from "@shared/types";
 
 const SESSION_KEY = "ruleta-del-trago-session";
 
@@ -23,14 +24,31 @@ function getSocketUrl(): string {
   return window.location.origin;
 }
 
-function getSessionCode(): string | null {
+interface SessionData {
+  code: string;
+  name: string;
+  drunkLevel: number;
+  drinksAlcohol: boolean;
+  gender?: Gender;
+  isHost?: boolean;
+}
+
+function readSession(): SessionData | null {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
-    return (JSON.parse(raw) as { code: string }).code;
+    return JSON.parse(raw) as SessionData;
   } catch {
     return null;
   }
+}
+
+function getSessionCode(): string | null {
+  return readSession()?.code ?? null;
+}
+
+function saveSession(data: SessionData): void {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(data));
 }
 
 export interface SpinResultPayload {
@@ -38,6 +56,7 @@ export interface SpinResultPayload {
   mode: string;
   challenge: Challenge;
   drinkAmounts: Record<string, number>;
+  skipDrinkAmounts?: Record<string, number>;
   soberAlternatives: Record<string, string>;
   displayTexts: Record<string, string>;
 }
@@ -54,7 +73,8 @@ interface SocketContextValue {
     code: string,
     name: string,
     drunkLevel: number,
-    drinksAlcohol: boolean
+    drinksAlcohol: boolean,
+    gender: Gender
   ) => Promise<RoomState>;
   setSettings: (settings: GameSettings, code?: string) => Promise<RoomState>;
   updateHostName: (name: string) => void;
@@ -62,6 +82,7 @@ interface SocketContextValue {
     name?: string;
     drunkLevel?: number;
     drinksAlcohol?: boolean;
+    gender?: Gender;
   }) => void;
   startGame: () => Promise<RoomState>;
   beginSpin: () => Promise<RoomState>;
@@ -90,45 +111,45 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       reconnectionAttempts: Infinity,
     });
     setSocket(s);
-    s.on("room:update", (r: RoomState) => setRoom(r));
+    s.on("room:update", (r: RoomState) => {
+      setRoom(r);
+      if (r.activeSpin) setLastSpinResult(r.activeSpin);
+    });
+
+    const joinAsPlayer = (data: SessionData) => {
+      s.emit(
+        "room:join",
+        {
+          code: data.code,
+          name: data.name,
+          drunkLevel: data.drunkLevel,
+          drinksAlcohol: data.drinksAlcohol,
+          gender: normalizeGender(data.gender),
+        },
+        (joinRes: { ok: boolean; room?: RoomState }) => {
+          if (joinRes.ok && joinRes.room) setRoom(joinRes.room);
+        }
+      );
+    };
 
     const tryRejoin = () => {
-      const code = getSessionCode();
-      if (!code) return;
-      const raw = sessionStorage.getItem(SESSION_KEY);
-      if (!raw) return;
-      try {
-        const data = JSON.parse(raw) as {
-          code: string;
-          name: string;
-          drunkLevel: number;
-          drinksAlcohol: boolean;
-        };
-        s.emit(
-          "room:rejoinHost",
-          { code: data.code },
-          (res: { ok: boolean; room?: RoomState }) => {
-            if (res.ok && res.room) {
-              setRoom(res.room);
-              return;
-            }
-            s.emit(
-              "room:join",
-              {
-                code: data.code,
-                name: data.name,
-                drunkLevel: data.drunkLevel,
-                drinksAlcohol: data.drinksAlcohol,
-              },
-              (joinRes: { ok: boolean; room?: RoomState }) => {
-                if (joinRes.ok && joinRes.room) setRoom(joinRes.room);
-              }
-            );
-          }
-        );
-      } catch {
-        /* ignore */
+      const data = readSession();
+      if (!data?.code) return;
+      if (data.isHost === false) {
+        joinAsPlayer(data);
+        return;
       }
+      s.emit(
+        "room:rejoinHost",
+        { code: data.code },
+        (res: { ok: boolean; room?: RoomState }) => {
+          if (res.ok && res.room) {
+            setRoom(res.room);
+            return;
+          }
+          joinAsPlayer(data);
+        }
+      );
     };
 
     s.on("connect", () => {
@@ -146,15 +167,14 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     return new Promise<RoomState>((resolve, reject) => {
       socket.emit("room:create", (res: { ok: boolean; room?: RoomState }) => {
         if (res.ok && res.room) {
-          sessionStorage.setItem(
-            SESSION_KEY,
-            JSON.stringify({
-              code: res.room.code,
-              name: "Host",
-              drunkLevel: 5,
-              drinksAlcohol: true,
-            })
-          );
+          saveSession({
+            code: res.room.code,
+            name: "Host",
+            drunkLevel: 5,
+            drinksAlcohol: true,
+            gender: "otro",
+            isHost: true,
+          });
           setRoom(res.room);
           resolve(res.room);
         } else reject(new Error("Error al crear sala"));
@@ -167,24 +187,24 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       code: string,
       name: string,
       drunkLevel: number,
-      drinksAlcohol: boolean
+      drinksAlcohol: boolean,
+      gender: Gender
     ) => {
       if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
       return new Promise<RoomState>((resolve, reject) => {
         socket.emit(
           "room:join",
-          { code, name, drunkLevel, drinksAlcohol },
+          { code, name, drunkLevel, drinksAlcohol, gender },
           (res: { ok: boolean; room?: RoomState; error?: string }) => {
             if (res.ok && res.room) {
-              sessionStorage.setItem(
-                SESSION_KEY,
-                JSON.stringify({
-                  code: res.room.code,
-                  name,
-                  drunkLevel,
-                  drinksAlcohol,
-                })
-              );
+              saveSession({
+                code: res.room.code,
+                name,
+                drunkLevel,
+                drinksAlcohol,
+                gender,
+                isHost: res.room.hostId === socket.id,
+              });
               setRoom(res.room);
               resolve(res.room);
             } else reject(new Error(res.error ?? "Error al unirse"));
@@ -232,33 +252,28 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   );
 
   const updateHostProfile = useCallback(
-    (data: { name?: string; drunkLevel?: number; drinksAlcohol?: boolean }) => {
+    (data: {
+      name?: string;
+      drunkLevel?: number;
+      drinksAlcohol?: boolean;
+      gender?: Gender;
+    }) => {
       if (socket) socket.emit("host:updateProfile", data);
-      const raw = sessionStorage.getItem(SESSION_KEY);
-      if (raw) {
-        try {
-          const session = JSON.parse(raw) as {
-            code: string;
-            name: string;
-            drunkLevel: number;
-            drinksAlcohol: boolean;
-          };
-          sessionStorage.setItem(
-            SESSION_KEY,
-            JSON.stringify({
-              ...session,
-              ...(data.name ? { name: data.name } : {}),
-              ...(data.drunkLevel !== undefined
-                ? { drunkLevel: data.drunkLevel }
-                : {}),
-              ...(data.drinksAlcohol !== undefined
-                ? { drinksAlcohol: data.drinksAlcohol }
-                : {}),
-            })
-          );
-        } catch {
-          /* ignore */
-        }
+      const session = readSession();
+      if (session) {
+        saveSession({
+          ...session,
+          ...(data.name ? { name: data.name } : {}),
+          ...(data.drunkLevel !== undefined
+            ? { drunkLevel: data.drunkLevel }
+            : {}),
+          ...(data.drinksAlcohol !== undefined
+            ? { drinksAlcohol: data.drinksAlcohol }
+            : {}),
+          ...(data.gender !== undefined
+            ? { gender: normalizeGender(data.gender) }
+            : {}),
+        });
       }
     },
     [socket]
@@ -276,11 +291,16 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
   const beginSpin = useCallback(() => {
     if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
+    const code = getSessionCode();
     return new Promise<RoomState>((resolve, reject) => {
-      socket.emit("host:spin", (res: { ok: boolean; room?: RoomState }) => {
-        if (res.ok && res.room) resolve(res.room);
-        else reject(new Error("No se pudo girar"));
-      });
+      socket.emit(
+        "host:spin",
+        { code },
+        (res: { ok: boolean; room?: RoomState; error?: string }) => {
+          if (res.ok && res.room) resolve(res.room);
+          else reject(new Error(res.error ?? "No se pudo girar"));
+        }
+      );
     });
   }, [socket]);
 
@@ -289,11 +309,16 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     return new Promise<SpinResultPayload>((resolve, reject) => {
       socket.emit(
         "host:spinComplete",
-        (res: { ok: boolean; spinResult?: SpinResultPayload }) => {
+        { code: getSessionCode() },
+        (res: {
+          ok: boolean;
+          spinResult?: SpinResultPayload;
+          error?: string;
+        }) => {
           if (res.ok && res.spinResult) {
             setLastSpinResult(res.spinResult);
             resolve(res.spinResult);
-          } else reject(new Error("Error al completar giro"));
+          } else reject(new Error(res.error ?? "Error al completar giro"));
         }
       );
     });

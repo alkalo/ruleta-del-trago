@@ -1,7 +1,21 @@
-import type { ContentLevel } from "./types";
+import type {
+  Challenge,
+  ContentLevel,
+  GameSettings,
+  OrientationPref,
+} from "./types";
+import {
+  challengeFitsRoomGenders,
+  type GenderedPlayer,
+} from "./genderMatch";
 
 const LEVEL_ORDER: ContentLevel[] = ["suave", "medio", "picante", "sin_limite"];
 
+/**
+ * El nivel de la sala es un TECHO, no un match exacto:
+ * un reto `picante` sí sale en `sin_limite`; un reto `sin_limite` no sale en `picante`.
+ * `selectChallenge` prioriza el nivel elegido (y el de al lado) antes de bajar más.
+ */
 export function contentLevelAllowed(
   challengeLevel: ContentLevel,
   maxLevel: ContentLevel
@@ -9,18 +23,191 @@ export function contentLevelAllowed(
   return LEVEL_ORDER.indexOf(challengeLevel) <= LEVEL_ORDER.indexOf(maxLevel);
 }
 
-/** Multiplicador de tragos según nivel de borrachera (objetivo 7.5–8.5). */
+export function contentLevelDistance(
+  challengeLevel: ContentLevel,
+  selected: ContentLevel
+): number {
+  return Math.abs(
+    LEVEL_ORDER.indexOf(challengeLevel) - LEVEL_ORDER.indexOf(selected)
+  );
+}
+
+/** Neutro vale para todos. El resto solo si el host marcó esa orientación. */
+export function matchesOrientation(
+  challengeOrients: OrientationPref[],
+  selected: OrientationPref[]
+): boolean {
+  if (challengeOrients.length === 0) return true;
+  if (challengeOrients.includes("neutro")) return true;
+  return challengeOrients.some((o) => selected.includes(o));
+}
+
+/** Restricciones que NUNCA se relajan: tipo, techo de contenido, strip, pareja, orientación. */
+export function matchesHardConstraints(
+  challenge: Challenge,
+  settings: GameSettings
+): boolean {
+  if (!settings.challengeTypes.includes(challenge.type)) return false;
+  if (!contentLevelAllowed(challenge.contentLevel, settings.contentLevel)) {
+    return false;
+  }
+  if (challenge.type === "strip" && !settings.stripEnabled) return false;
+  if (challenge.type === "couple" && !settings.coupleChallengesEnabled) {
+    return false;
+  }
+  if (!matchesOrientation(challenge.orientations, settings.orientations)) {
+    return false;
+  }
+  if (
+    !settings.coupleChallengesEnabled &&
+    challenge.orientations.length > 0 &&
+    !challenge.orientations.includes("neutro")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function filterHardConstraints(
+  all: Challenge[],
+  settings: GameSettings,
+  players: GenderedPlayer[] = []
+): Challenge[] {
+  return all.filter(
+    (c) =>
+      matchesHardConstraints(c, settings) &&
+      challengeFitsRoomGenders(c, players, settings)
+  );
+}
+
+function matchesVibes(challenge: Challenge, settings: GameSettings): boolean {
+  if (settings.vibes.length === 0 || challenge.vibes.length === 0) return true;
+  return challenge.vibes.some((v) => settings.vibes.includes(v));
+}
+
+function weightedPick(
+  pool: Challenge[],
+  settings: GameSettings,
+  rng: () => number
+): Challenge {
+  const weights = pool.map((c) => {
+    const d = contentLevelDistance(c.contentLevel, settings.contentLevel);
+    if (d === 0) return 8;
+    if (d === 1) return 3;
+    if (d === 2) return 0.6;
+    return 0.2;
+  });
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  let roll = rng() * total;
+  for (let i = 0; i < pool.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return pool[i];
+  }
+  return pool[pool.length - 1];
+}
+
+export const NO_MATCHING_CHALLENGE =
+  "No hay ningún reto que encaje con tipo, contenido, orientación, géneros de la sala, strip y pareja. Cambia los tags o espera a más gente.";
+
+export type ChallengePick =
+  | {
+      ok: true;
+      challenge: Challenge;
+      relaxed: "none" | "content" | "intensity" | "vibes";
+    }
+  | { ok: false; reason: string };
+
+/**
+ * Elige un reto sin violar nunca las restricciones duras.
+ * Si el pool ideal está vacío, relaja: cercanía de contenido → intensity → vibes.
+ * Nunca “cualquier reto”.
+ */
+export function selectChallenge(
+  all: Challenge[],
+  settings: GameSettings,
+  round: number,
+  players: GenderedPlayer[] = [],
+  rng: () => number = Math.random
+): ChallengePick {
+  const hard = filterHardConstraints(all, settings, players);
+  if (hard.length === 0) {
+    return { ok: false, reason: NO_MATCHING_CHALLENGE };
+  }
+
+  const intensityMin = getIntensityMin(round);
+  const closeContent = (c: Challenge) =>
+    contentLevelDistance(c.contentLevel, settings.contentLevel) <= 1;
+  const vibeOk = (c: Challenge) => matchesVibes(c, settings);
+  const intenseOk = (c: Challenge) => c.intensity >= intensityMin;
+
+  const tiers: {
+    pool: Challenge[];
+    relaxed: "none" | "content" | "intensity" | "vibes";
+  }[] = [
+    {
+      pool: hard.filter((c) => intenseOk(c) && vibeOk(c) && closeContent(c)),
+      relaxed: "none",
+    },
+    {
+      pool: hard.filter((c) => intenseOk(c) && vibeOk(c)),
+      relaxed: "content",
+    },
+    {
+      pool: hard.filter((c) => vibeOk(c)),
+      relaxed: "intensity",
+    },
+    { pool: hard, relaxed: "vibes" },
+  ];
+
+  for (const tier of tiers) {
+    if (tier.pool.length > 0) {
+      return {
+        ok: true,
+        challenge: weightedPick(tier.pool, settings, rng),
+        relaxed: tier.relaxed,
+      };
+    }
+  }
+
+  return { ok: false, reason: NO_MATCHING_CHALLENGE };
+}
+
+export const MIN_ADAPTED_DRINKS = 0.25;
+
+/**
+ * Curva siempre distinta: nivel bajo bebe más (ponerse al día hacia 7.5–8.5);
+ * zona media ≈ base; sweet spot menos; fino casi un sorbo.
+ * Usa el último nivel confirmado en una pausa.
+ */
 export function getDrinkMultiplier(drunkLevel: number): number {
-  if (drunkLevel >= 8.5) return 0.2;
-  if (drunkLevel >= 8) return 0.35;
-  if (drunkLevel >= 7.5) return 0.5;
-  if (drunkLevel >= 7) return 0.7;
-  if (drunkLevel >= 6) return 0.85;
-  if (drunkLevel >= 5) return 1;
-  if (drunkLevel >= 4) return 1.25;
-  if (drunkLevel >= 3) return 1.5;
-  if (drunkLevel >= 2) return 1.75;
-  return 2;
+  if (drunkLevel >= 9.5) return 0.25;
+  if (drunkLevel >= 9) return 0.3;
+  if (drunkLevel >= 8.5) return 0.4;
+  if (drunkLevel >= 8) return 0.5;
+  if (drunkLevel >= 7.5) return 0.6;
+  if (drunkLevel >= 7) return 1;
+  if (drunkLevel >= 6) return 1.1;
+  if (drunkLevel >= 5) return 1.2;
+  if (drunkLevel >= 4) return 1.5;
+  if (drunkLevel >= 3) return 1.8;
+  if (drunkLevel >= 2) return 2.1;
+  return 2.4;
+}
+
+export function adjustDrinksForDrunkLevel(
+  baseDrinks: number,
+  drunkLevel: number
+): number {
+  const scaled = Math.max(0, baseDrinks) * getDrinkMultiplier(drunkLevel);
+  const rounded = Math.round(scaled * 10) / 10;
+  return Math.max(MIN_ADAPTED_DRINKS, rounded);
+}
+
+export function getSkipPenaltyDrinks(
+  baseDrinks: number,
+  drunkLevel: number
+): number {
+  return adjustDrinksForDrunkLevel(baseDrinks + 1, drunkLevel);
 }
 
 export function getIntensityMin(round: number): number {
@@ -81,11 +268,19 @@ export function personalizeText(
   return result;
 }
 
+function prettyDrinkNumber(amount: number): string {
+  const rounded = Math.round(amount * 10) / 10;
+  if (Math.abs(rounded - Math.round(rounded)) < 0.05) {
+    return String(Math.round(rounded));
+  }
+  return rounded.toFixed(1);
+}
+
 export function formatDrinkAmount(amount: number): string {
-  if (amount <= 0.3) return "un sorbo simbólico (ya vas fino, crack)";
+  if (amount <= 0.3) return "un sorbo simbólico (ya vas alto/a)";
   if (amount <= 0.6) return "medio trago";
   if (amount <= 1) return "1 trago";
   if (amount <= 1.5) return "1 trago y medio";
   if (amount <= 2) return "2 tragos";
-  return `${Math.round(amount)} tragos (el grupo dice que te lo has ganado)`;
+  return `${prettyDrinkNumber(amount)} tragos (el grupo dice que te lo has ganado)`;
 }

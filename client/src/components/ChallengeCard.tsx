@@ -8,6 +8,7 @@ interface Props {
   mode: GameMode;
   displayText: string;
   drinkAmount?: number;
+  skipDrinkAmount?: number;
   soberAlternative?: string;
   drinksAlcohol: boolean;
   isTarget: boolean;
@@ -22,6 +23,7 @@ export default function ChallengeCard({
   mode,
   displayText,
   drinkAmount,
+  skipDrinkAmount,
   soberAlternative,
   drinksAlcohol,
   isTarget,
@@ -30,6 +32,13 @@ export default function ChallengeCard({
   onSkipped,
   acted,
 }: Props) {
+  const whose = isTarget ? "tu" : "su";
+  const skipAmount = skipDrinkAmount ?? drinkAmount;
+  const skipDiffers =
+    skipAmount !== undefined &&
+    drinkAmount !== undefined &&
+    skipAmount !== drinkAmount;
+
   return (
     <div className="challenge-card">
       <span className="badge">{GAME_MODE_LABELS[mode]}</span>
@@ -38,8 +47,15 @@ export default function ChallengeCard({
 
       {drinksAlcohol && drinkAmount !== undefined && drinkAmount > 0 && (
         <p>
-          🍺 Penalización: <strong>{formatDrinkAmount(drinkAmount)}</strong>
-          <span className="muted"> (adaptado a tu nivel)</span>
+          🍺 {isTarget ? "Tú bebes" : "Bebe"}:{" "}
+          <strong>{formatDrinkAmount(drinkAmount)}</strong>
+          <span className="muted"> — adaptado a {whose} nivel</span>
+        </p>
+      )}
+
+      {drinksAlcohol && skipDiffers && skipAmount !== undefined && (
+        <p className="muted">
+          Si pasa el reto: {formatDrinkAmount(skipAmount)} (también adaptado)
         </p>
       )}
 
@@ -59,7 +75,7 @@ export default function ChallengeCard({
                 onDrank();
               }}
             >
-              He bebido 🍻
+              He bebido {formatDrinkAmount(drinkAmount)} 🍻
             </button>
           )}
           <button
@@ -78,7 +94,9 @@ export default function ChallengeCard({
               onSkipped();
             }}
           >
-            No quiero / bebo penalización
+            {drinksAlcohol && skipAmount !== undefined
+              ? `No quiero / bebo ${formatDrinkAmount(skipAmount)}`
+              : "No quiero / castigo sobrio"}
           </button>
         </div>
       )}

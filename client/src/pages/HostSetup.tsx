@@ -8,7 +8,9 @@ import type {
   OrientationPref,
   ContentLevel,
   GameSettings,
+  Gender,
 } from "@shared/types";
+import GenderPicker from "../components/GenderPicker";
 import {
   ALL_VIBES,
   ALL_CHALLENGE_TYPES,
@@ -46,6 +48,7 @@ export default function HostSetup() {
   const [hostName, setHostName] = useState("");
   const [hostDrunk, setHostDrunk] = useState(5);
   const [hostDrinks, setHostDrinks] = useState(true);
+  const [hostGender, setHostGender] = useState<Gender | null>(null);
 
   const toggle = <T extends string>(list: T[], item: T, set: (v: T[]) => void) => {
     sounds.click();
@@ -81,11 +84,16 @@ export default function HostSetup() {
       alert("No hay código de sala. Vuelve a crear la partida.");
       return;
     }
+    if (!hostGender) {
+      alert("Elige tu género: lo usamos para emparejar retos.");
+      return;
+    }
     try {
       updateHostProfile({
         name: hostName.trim() || undefined,
         drunkLevel: hostDrunk,
         drinksAlcohol: hostDrinks,
+        gender: hostGender,
       });
       await setSettings(settings, roomCode);
       navigate(`/lobby/${roomCode}`);
@@ -131,7 +139,10 @@ export default function HostSetup() {
       {step === 1 && (
         <div className="card">
           <h2>Tipos de retos</h2>
-          <p className="muted">Todo vale, pero tú eliges qué entra.</p>
+          <p className="muted">
+            Solo salen los tipos que marques. Si dejas minijuego, pueden salir
+            minijuegos. Si solo quieres físicos, desmarca el resto.
+          </p>
           <div className="chip-grid">
             {ALL_CHALLENGE_TYPES.map((t) => (
               <button
@@ -150,8 +161,10 @@ export default function HostSetup() {
         <div className="card">
           <h2>Orientación y contenido</h2>
           <p className="muted">
-            Los retos neutros siempre entran. Activa pareja/contacto si quieres
-            romance.
+            Los retos neutros (sin romance) valen para todos. Un reto gay,
+            lesbiana o hetero solo sale si marcas esa orientación. El nivel es
+            un techo: en picante no entra «sin límite», y priorizamos retos
+            picantes de verdad.
           </p>
           <label className="label">Retos de pareja / contacto físico</label>
           <div className="chip-grid">
@@ -237,7 +250,7 @@ export default function HostSetup() {
             </button>
           </div>
           <p className="muted">
-            Intensidad sube con el tiempo automáticamente. Pausas de borrachera
+            Intensidad sube con el tiempo automáticamente. Pausas de copas
             cada 4 rondas.
           </p>
         </div>
@@ -254,7 +267,7 @@ export default function HostSetup() {
             onChange={(e) => setHostName(e.target.value)}
           />
           <div className="slider-row">
-            <label className="label">Tu nivel borracho ({hostDrunk}/10)</label>
+            <label className="label">Tu nivel (1–10): {hostDrunk}</label>
             <input
               type="range"
               min={1}
@@ -275,19 +288,26 @@ export default function HostSetup() {
               className={`chip ${!hostDrinks ? "selected" : ""}`}
               onClick={() => setHostDrinks(false)}
             >
-              🧃 Sobrio
+              🧃 Sin alcohol
             </button>
           </div>
+          <GenderPicker value={hostGender} onChange={setHostGender} />
           <h3>Resumen</h3>
           <p className="muted">
             Vibes: {vibes.map((v) => VIBE_LABELS[v]).join(", ")}
           </p>
           <p className="muted">
-            Retos pareja: {coupleChallengesEnabled ? "sí" : "no"} · Contenido:{" "}
-            {CONTENT_LEVEL_LABELS[contentLevel]}
+            Tipos: {challengeTypes.map((t) => CHALLENGE_TYPE_LABELS[t]).join(", ")}
           </p>
           <p className="muted">
-            Strip: {stripEnabled ? "sí" : "no"} · Pack: 150 retos
+            Retos pareja: {coupleChallengesEnabled ? "sí" : "no"}
+            {coupleChallengesEnabled
+              ? ` · Orientaciones: ${orientations.map((o) => ORIENTATION_LABELS[o]).join(", ")}`
+              : " · solo neutro"}{" "}
+            · Contenido: {CONTENT_LEVEL_LABELS[contentLevel]}
+          </p>
+          <p className="muted">
+            Strip: {stripEnabled ? "sí" : "no"} · Pack del servidor
           </p>
         </div>
       )}
@@ -303,7 +323,12 @@ export default function HostSetup() {
             Siguiente
           </button>
         ) : (
-          <button className="btn btn-cyan" onClick={finish} style={{ flex: 2 }}>
+          <button
+            className="btn btn-cyan"
+            onClick={finish}
+            style={{ flex: 2 }}
+            disabled={!hostGender}
+          >
             Abrir lobby
           </button>
         )}

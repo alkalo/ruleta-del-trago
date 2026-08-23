@@ -44,10 +44,14 @@ export default function DrunkCheckModal({
 
   return (
     <div className="challenge-card">
-      <h2>⏸️ Pausa borrachera</h2>
+      <h2>⏸️ Pausa de copas</h2>
       <p className="muted">
         {roundLabel ?? "¿Cómo vas ahora?"} Media del grupo: <strong>{avg}</strong>{" "}
         · Objetivo: 7.5–8.5
+      </p>
+      <p className="muted">
+        Este número decide cuántos tragos te tocan hasta la próxima pausa.
+        Beber no sube el medidor: solo lo actualizas aquí, en tu móvil.
       </p>
 
       {!submitted && me && (
