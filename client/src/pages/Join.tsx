@@ -1,16 +1,22 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
 
 export default function Join() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { joinRoom, connected } = useSocket();
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(searchParams.get("code") ?? "");
   const [name, setName] = useState("");
   const [drunkLevel, setDrunkLevel] = useState(5);
   const [drinksAlcohol, setDrinksAlcohol] = useState(true);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const c = searchParams.get("code");
+    if (c) setCode(c.toUpperCase());
+  }, [searchParams]);
 
   const handleJoin = async () => {
     if (!code.trim() || !name.trim()) return;

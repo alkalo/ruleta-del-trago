@@ -1,10 +1,9 @@
-{
-  "build": {
-    "builder": "DOCKERFILE",
-    "dockerfilePath": "./Dockerfile"
-  },
-  "deploy": {
-    "startCommand": "npm start",
-    "healthCheckPath": "/api/health"
-  }
-}
+services:
+  - type: web
+    name: ruleta-del-trago
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production

@@ -251,6 +251,20 @@ io.on("connection", (socket) => {
     }
   );
 
+  socket.on("host:continue", (callback) => {
+    if (!currentCode) {
+      callback({ ok: false });
+      return;
+    }
+    const room = rooms.continueAfterVictory(currentCode, socket.id);
+    if (!room) {
+      callback({ ok: false });
+      return;
+    }
+    emitRoom(currentCode);
+    callback({ ok: true, room });
+  });
+
   socket.on("disconnect", () => {
     if (currentCode) {
       rooms.disconnectPlayer(currentCode, socket.id);
@@ -259,6 +273,6 @@ io.on("connection", (socket) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Ruleta del Trago server on http://localhost:${PORT}`);
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`Ruleta del Trago server on http://0.0.0.0:${PORT}`);
 });

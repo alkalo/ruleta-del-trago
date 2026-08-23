@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
@@ -8,6 +8,7 @@ import DrunkCheckModal from "../components/DrunkCheckModal";
 import StatsPanel from "../components/StatsPanel";
 import ChallengeCard from "../components/ChallengeCard";
 import HostChallengeEditor from "../components/HostChallengeEditor";
+import VictoryScreen from "../components/VictoryScreen";
 import type { GameMode } from "@shared/types";
 
 export default function Game() {
@@ -24,22 +25,25 @@ export default function Game() {
     markDrank,
     markCompleted,
     markSkipped,
+    continueGame,
   } = useSocket();
 
   const [localSpinning, setLocalSpinning] = useState(false);
   const [winnerIndex, setWinnerIndex] = useState<number | null>(null);
   const [actedTargets, setActedTargets] = useState<Set<string>>(new Set());
-  const [displayResult, setDisplayResult] = useState<typeof lastSpinResult>(null);
 
   const players = room?.players.filter((p) => p.connected) ?? [];
   const names = players.map((p) => p.name);
 
+  const spinDisplay = useMemo(() => {
+    if (lastSpinResult) return lastSpinResult;
+    if (room?.activeSpin) return room.activeSpin;
+    return null;
+  }, [lastSpinResult, room?.activeSpin]);
+
   useEffect(() => {
-    if (lastSpinResult) {
-      setDisplayResult(lastSpinResult);
-      setActedTargets(new Set());
-    }
-  }, [lastSpinResult]);
+    if (spinDisplay) setActedTargets(new Set());
+  }, [spinDisplay?.challenge?.id, spinDisplay?.targets?.join(",")]);
 
   useEffect(() => {
     if (room?.sessionAlerts.length) {
@@ -53,7 +57,6 @@ export default function Game() {
     if (!isHost) return;
     sounds.click();
     setActedTargets(new Set());
-    setDisplayResult(null);
     setWinnerIndex(null);
 
     try {
@@ -81,9 +84,7 @@ export default function Game() {
   const handleDrunkSubmit = async (updates: Record<string, number>) => {
     try {
       await updateDrunkLevels(updates);
-      if (room?.phase === "drunk_check") {
-        await finishDrunkCheck();
-      }
+      await finishDrunkCheck();
     } catch {
       alert("Error al actualizar niveles");
     }
@@ -114,9 +115,10 @@ export default function Game() {
   }
 
   const phase = room.phase;
-  const targets = displayResult?.targets ?? room.currentTargets;
-  const mode = (displayResult?.mode ?? room.currentMode) as GameMode | null;
-  const challenge = displayResult?.challenge ?? room.currentChallenge;
+  const spin = spinDisplay;
+  const targets = spin?.targets ?? room.currentTargets;
+  const mode = (spin?.mode ?? room.currentMode) as GameMode | null;
+  const challenge = spin?.challenge ?? room.currentChallenge;
 
   return (
     <div>
@@ -133,6 +135,19 @@ export default function Game() {
           {a.message}
         </div>
       ))}
+
+      {phase === "ended" && (
+        <VictoryScreen
+          isHost={isHost}
+          onContinue={async () => {
+            try {
+              await continueGame();
+            } catch {
+              alert("Solo el host puede continuar");
+            }
+          }}
+        />
+      )}
 
       {phase === "drunk_check" && (
         <DrunkCheckModal
@@ -163,7 +178,7 @@ export default function Game() {
             </p>
           )}
 
-          {challenge && mode && displayResult && (
+          {challenge && mode && spin && (
             <>
               {targets.map((tid) => {
                 const player = players.find((p) => p.id === tid);
@@ -177,13 +192,9 @@ export default function Game() {
                     <ChallengeCard
                       challenge={challenge}
                       mode={mode}
-                      displayText={
-                        displayResult.displayTexts[tid] ?? challenge.text
-                      }
-                      drinkAmount={displayResult.drinkAmounts[tid]}
-                      soberAlternative={
-                        displayResult.soberAlternatives[tid]
-                      }
+                      displayText={spin.displayTexts[tid] ?? challenge.text}
+                      drinkAmount={spin.drinkAmounts[tid]}
+                      soberAlternative={spin.soberAlternatives[tid]}
                       drinksAlcohol={player.drinksAlcohol}
                       isTarget={playerId === tid}
                       onDrank={() => handleAction(tid, "drank")}
@@ -197,7 +208,7 @@ export default function Game() {
             </>
           )}
 
-          {!displayResult && !localSpinning && phase === "challenge" && (
+          {!spin && !localSpinning && phase === "challenge" && (
             <div className="card">
               <p className="muted">
                 {isHost

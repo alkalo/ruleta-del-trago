@@ -83,6 +83,7 @@ export interface RoomState {
   drunkCheckRound: number;
   sessionAlerts: SessionAlert[];
   customChallenges: Challenge[];
+  activeSpin: SpinResult | null;
 }
 
 export interface SessionAlert {

@@ -78,6 +78,7 @@ export class RoomManager {
       drunkCheckRound: 0,
       sessionAlerts: [],
       customChallenges: [],
+      activeSpin: null,
     };
 
     this.rooms.set(code, room);
@@ -97,18 +98,35 @@ export class RoomManager {
   ): RoomState | null {
     const room = this.getRoom(code);
     if (!room) return null;
-    if (room.phase !== "lobby") return null;
 
-    const existing = room!.players.find((p) => p.id === playerId);
+    const existing = room.players.find((p) => p.id === playerId);
     if (existing) {
       existing.connected = true;
       existing.name = name;
-      existing.drunkLevel = drunkLevel;
+      existing.drunkLevel = Math.min(10, Math.max(1, drunkLevel));
       existing.drinksAlcohol = drinksAlcohol;
-      return room!;
+      existing.isFino = isFino(existing.drunkLevel);
+      return room;
     }
 
-    if (room!.players.filter((p) => p.connected).length >= 20) return null;
+    const existingByName = room.players.find(
+      (p) => p.name.toLowerCase() === name.trim().toLowerCase()
+    );
+    if (existingByName) {
+      if (existingByName.isHost) {
+        room.hostId = playerId;
+      }
+      existingByName.id = playerId;
+      existingByName.connected = true;
+      existingByName.drunkLevel = Math.min(10, Math.max(1, drunkLevel));
+      existingByName.drinksAlcohol = drinksAlcohol;
+      existingByName.isFino = isFino(existingByName.drunkLevel);
+      return room;
+    }
+
+    if (room.phase !== "lobby") return null;
+
+    if (room.players.filter((p) => p.connected).length >= 20) return null;
 
     const player: Player = {
       id: playerId,
@@ -121,8 +139,8 @@ export class RoomManager {
       isFino: isFino(drunkLevel),
     };
 
-    room!.players.push(player);
-    return room!;
+    room.players.push(player);
+    return room;
   }
 
   setHostSettings(code: string, settings: GameSettings): RoomState | null {
@@ -174,15 +192,17 @@ export class RoomManager {
       }
     }
 
-  // Check if all in sweet spot
+    // Check if all in sweet spot
     const active = room.players.filter((p) => p.connected);
-    const allSweet = active.every((p) => isInSweetSpot(p.drunkLevel));
-    if (allSweet && active.length > 0) {
+    const allSweet =
+      active.length > 0 && active.every((p) => isInSweetSpot(p.drunkLevel));
+    if (allSweet && active.length > 0 && room.round > 0) {
       this.addAlert(
         room,
         "info",
-        "🎉 ¡NIVEL PERFECTO! Todos entre 7.5 y 8.5. Ereses unos profesionales."
+        "🎉 ¡NIVEL PERFECTO! Todos entre 7.5 y 8.5. Sois unos profesionales."
       );
+      room.phase = "ended";
     }
 
     return room;
@@ -216,9 +236,11 @@ export class RoomManager {
     if (shouldTriggerDrunkCheck(room.round)) {
       room.phase = "drunk_check";
       room.drunkCheckRound++;
+      room.activeSpin = null;
       return room;
     }
 
+    room.activeSpin = null;
     room.phase = "spinning";
     const active = room.players.filter((p) => p.connected);
     room.spinPlayerIds = active.map((p) => p.id);
@@ -293,6 +315,15 @@ export class RoomManager {
         );
       }
     }
+
+    room.activeSpin = {
+      targets: targets.map((t) => t.id),
+      mode,
+      challenge,
+      drinkAmounts,
+      soberAlternatives,
+      displayTexts,
+    };
 
     // Warning for heavy penalties
     for (const target of targets) {
@@ -369,6 +400,13 @@ export class RoomManager {
       player.isFino = isFino(player.drunkLevel);
     }
 
+    return room;
+  }
+
+  continueAfterVictory(code: string, hostId: string): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room || room.hostId !== hostId || room.phase !== "ended") return null;
+    room.phase = "challenge";
     return room;
   }
 

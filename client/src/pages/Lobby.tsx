@@ -41,6 +41,21 @@ export default function Lobby() {
     alert(`Código copiado: ${roomCode}`);
   };
 
+  const shareJoin = () => {
+    sounds.click();
+    const url = `${window.location.origin}/join?code=${roomCode}`;
+    if (navigator.share) {
+      navigator.share({
+        title: "Ruleta del Trago",
+        text: `Uníos a mi sala. Código: ${roomCode}`,
+        url,
+      });
+    } else {
+      navigator.clipboard?.writeText(url);
+      alert(`Link copiado: ${url}`);
+    }
+  };
+
   return (
     <div>
       <h1>Lobby</h1>
@@ -50,6 +65,10 @@ export default function Lobby() {
       <p className="muted" style={{ textAlign: "center" }}>
         Toca el código para copiar · Entrada: {shareUrl}
       </p>
+
+      <button className="btn btn-cyan" onClick={shareJoin} style={{ marginTop: 8 }}>
+        Compartir link de invitación
+      </button>
 
       {!connected && (
         <div className="alert-banner alert-warning">Reconectando…</div>

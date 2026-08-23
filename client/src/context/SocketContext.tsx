@@ -11,7 +11,9 @@ import type { RoomState, GameSettings, Challenge } from "@shared/types";
 
 const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
-  (import.meta.env.DEV ? "http://localhost:3000" : "");
+  (import.meta.env.DEV ? "http://localhost:3000" : window.location.origin);
+
+const SESSION_KEY = "ruleta-del-trago-session";
 
 export interface SpinResultPayload {
   targets: string[];
@@ -52,6 +54,7 @@ interface SocketContextValue {
   markCompleted: () => Promise<void>;
   markSkipped: () => Promise<void>;
   addChallenge: (challenge: Omit<Challenge, "id">) => Promise<RoomState>;
+  continueGame: () => Promise<RoomState>;
 }
 
 const SocketContext = createContext<SocketContextValue | null>(null);
@@ -67,9 +70,40 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const s = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     setSocket(s);
-    s.on("connect", () => setConnected(true));
-    s.on("disconnect", () => setConnected(false));
     s.on("room:update", (r: RoomState) => setRoom(r));
+
+    const tryRejoin = () => {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (!raw) return;
+      try {
+        const data = JSON.parse(raw) as {
+          code: string;
+          name: string;
+          drunkLevel: number;
+          drinksAlcohol: boolean;
+        };
+        s.emit(
+          "room:join",
+          {
+            code: data.code,
+            name: data.name,
+            drunkLevel: data.drunkLevel,
+            drinksAlcohol: data.drinksAlcohol,
+          },
+          (res: { ok: boolean; room?: RoomState }) => {
+            if (res.ok && res.room) setRoom(res.room);
+          }
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+
+    s.on("connect", () => {
+      setConnected(true);
+      tryRejoin();
+    });
+    s.on("disconnect", () => setConnected(false));
     return () => {
       s.disconnect();
     };
@@ -80,6 +114,15 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     return new Promise<RoomState>((resolve, reject) => {
       socket.emit("room:create", (res: { ok: boolean; room?: RoomState }) => {
         if (res.ok && res.room) {
+          sessionStorage.setItem(
+            SESSION_KEY,
+            JSON.stringify({
+              code: res.room.code,
+              name: "Host",
+              drunkLevel: 5,
+              drinksAlcohol: true,
+            })
+          );
           setRoom(res.room);
           resolve(res.room);
         } else reject("Error creating room");
@@ -101,6 +144,15 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           { code, name, drunkLevel, drinksAlcohol },
           (res: { ok: boolean; room?: RoomState; error?: string }) => {
             if (res.ok && res.room) {
+              sessionStorage.setItem(
+                SESSION_KEY,
+                JSON.stringify({
+                  code: res.room.code,
+                  name,
+                  drunkLevel,
+                  drinksAlcohol,
+                })
+              );
               setRoom(res.room);
               resolve(res.room);
             } else reject(res.error ?? "Error");
@@ -247,6 +299,16 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     [socket]
   );
 
+  const continueGame = useCallback(() => {
+    if (!socket) return Promise.reject("No socket");
+    return new Promise<RoomState>((resolve, reject) => {
+      socket.emit("host:continue", (res: { ok: boolean; room?: RoomState }) => {
+        if (res.ok && res.room) resolve(res.room);
+        else reject("Error");
+      });
+    });
+  }, [socket]);
+
   const playerId = socket?.id ?? "";
   const isHost = room?.hostId === playerId;
 
@@ -273,6 +335,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         markCompleted,
         markSkipped,
         addChallenge,
+        continueGame,
       }}
     >
       {children}
