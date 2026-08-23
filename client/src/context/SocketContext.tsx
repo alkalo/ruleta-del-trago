@@ -9,11 +9,29 @@ import {
 import { io, Socket } from "socket.io-client";
 import type { RoomState, GameSettings, Challenge } from "@shared/types";
 
-const SOCKET_URL =
-  import.meta.env.VITE_SOCKET_URL ||
-  (import.meta.env.DEV ? "http://localhost:3000" : window.location.origin);
-
 const SESSION_KEY = "ruleta-del-trago-session";
+
+function getSocketUrl(): string {
+  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
+  if (typeof window === "undefined") return "";
+  if (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+  ) {
+    return "http://localhost:3000";
+  }
+  return window.location.origin;
+}
+
+function getSessionCode(): string | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    return (JSON.parse(raw) as { code: string }).code;
+  } catch {
+    return null;
+  }
+}
 
 export interface SpinResultPayload {
   targets: string[];
@@ -38,7 +56,7 @@ interface SocketContextValue {
     drunkLevel: number,
     drinksAlcohol: boolean
   ) => Promise<RoomState>;
-  setSettings: (settings: GameSettings) => Promise<RoomState>;
+  setSettings: (settings: GameSettings, code?: string) => Promise<RoomState>;
   updateHostName: (name: string) => void;
   updateHostProfile: (data: {
     name?: string;
@@ -48,8 +66,7 @@ interface SocketContextValue {
   startGame: () => Promise<RoomState>;
   beginSpin: () => Promise<RoomState>;
   completeSpin: () => Promise<SpinResultPayload>;
-  updateDrunkLevels: (updates: Record<string, number>) => Promise<RoomState>;
-  finishDrunkCheck: () => Promise<RoomState>;
+  submitDrunkLevel: (level: number) => Promise<RoomState>;
   markDrank: () => Promise<void>;
   markCompleted: () => Promise<void>;
   markSkipped: () => Promise<void>;
@@ -68,11 +85,17 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    const s = io(SOCKET_URL, { transports: ["websocket", "polling"] });
+    const s = io(getSocketUrl(), {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+    });
     setSocket(s);
     s.on("room:update", (r: RoomState) => setRoom(r));
 
     const tryRejoin = () => {
+      const code = getSessionCode();
+      if (!code) return;
       const raw = sessionStorage.getItem(SESSION_KEY);
       if (!raw) return;
       try {
@@ -83,15 +106,25 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           drinksAlcohol: boolean;
         };
         s.emit(
-          "room:join",
-          {
-            code: data.code,
-            name: data.name,
-            drunkLevel: data.drunkLevel,
-            drinksAlcohol: data.drinksAlcohol,
-          },
+          "room:rejoinHost",
+          { code: data.code },
           (res: { ok: boolean; room?: RoomState }) => {
-            if (res.ok && res.room) setRoom(res.room);
+            if (res.ok && res.room) {
+              setRoom(res.room);
+              return;
+            }
+            s.emit(
+              "room:join",
+              {
+                code: data.code,
+                name: data.name,
+                drunkLevel: data.drunkLevel,
+                drinksAlcohol: data.drinksAlcohol,
+              },
+              (joinRes: { ok: boolean; room?: RoomState }) => {
+                if (joinRes.ok && joinRes.room) setRoom(joinRes.room);
+              }
+            );
           }
         );
       } catch {
@@ -110,7 +143,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createRoom = useCallback(() => {
-    if (!socket) return Promise.reject("No socket");
+    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
     return new Promise<RoomState>((resolve, reject) => {
       socket.emit("room:create", (res: { ok: boolean; room?: RoomState }) => {
         if (res.ok && res.room) {
@@ -125,7 +158,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           );
           setRoom(res.room);
           resolve(res.room);
-        } else reject("Error creating room");
+        } else reject(new Error("Error al crear sala"));
       });
     });
   }, [socket]);
@@ -137,7 +170,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       drunkLevel: number,
       drinksAlcohol: boolean
     ) => {
-      if (!socket) return Promise.reject("No socket");
+      if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
       return new Promise<RoomState>((resolve, reject) => {
         socket.emit(
           "room:join",
@@ -155,7 +188,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
               );
               setRoom(res.room);
               resolve(res.room);
-            } else reject(res.error ?? "Error");
+            } else reject(new Error(res.error ?? "Error al unirse"));
           }
         );
       });
@@ -164,16 +197,32 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   );
 
   const setSettings = useCallback(
-    (settings: GameSettings) => {
-      if (!socket) return Promise.reject("No socket");
+    (settings: GameSettings, explicitCode?: string) => {
+      if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
+      const roomCode = explicitCode ?? room?.code ?? getSessionCode();
+      if (!roomCode) {
+        return Promise.reject(
+          new Error("No hay código de sala. Vuelve a crear la partida.")
+        );
+      }
       return new Promise<RoomState>((resolve, reject) => {
-        socket.emit("host:settings", settings, (res: { ok: boolean; room?: RoomState }) => {
-          if (res.ok && res.room) resolve(res.room);
-          else reject("Error");
-        });
+        socket.emit(
+          "host:settings",
+          { code: roomCode, settings },
+          (res: { ok: boolean; room?: RoomState; error?: string }) => {
+            if (res.ok && res.room) {
+              setRoom(res.room);
+              resolve(res.room);
+            } else {
+              reject(
+                new Error(res.error ?? "Error al guardar configuración")
+              );
+            }
+          }
+        );
       });
     },
-    [socket]
+    [socket, room]
   );
 
   const updateHostName = useCallback(
@@ -217,27 +266,27 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   );
 
   const startGame = useCallback(() => {
-    if (!socket) return Promise.reject("No socket");
+    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
     return new Promise<RoomState>((resolve, reject) => {
       socket.emit("host:start", (res: { ok: boolean; room?: RoomState; error?: string }) => {
         if (res.ok && res.room) resolve(res.room);
-        else reject(res.error ?? "Error");
+        else reject(new Error(res.error ?? "Error al iniciar"));
       });
     });
   }, [socket]);
 
   const beginSpin = useCallback(() => {
-    if (!socket) return Promise.reject("No socket");
+    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
     return new Promise<RoomState>((resolve, reject) => {
       socket.emit("host:spin", (res: { ok: boolean; room?: RoomState }) => {
         if (res.ok && res.room) resolve(res.room);
-        else reject("Error");
+        else reject(new Error("No se pudo girar"));
       });
     });
   }, [socket]);
 
   const completeSpin = useCallback(() => {
-    if (!socket) return Promise.reject("No socket");
+    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
     return new Promise<SpinResultPayload>((resolve, reject) => {
       socket.emit(
         "host:spinComplete",
@@ -245,22 +294,24 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           if (res.ok && res.spinResult) {
             setLastSpinResult(res.spinResult);
             resolve(res.spinResult);
-          } else reject("Error");
+          } else reject(new Error("Error al completar giro"));
         }
       );
     });
   }, [socket]);
 
-  const updateDrunkLevels = useCallback(
-    (updates: Record<string, number>) => {
-      if (!socket) return Promise.reject("No socket");
+  const submitDrunkLevel = useCallback(
+    (level: number) => {
+      if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
       return new Promise<RoomState>((resolve, reject) => {
         socket.emit(
-          "game:drunkLevels",
-          updates,
-          (res: { ok: boolean; room?: RoomState }) => {
-            if (res.ok && res.room) resolve(res.room);
-            else reject("Error");
+          "player:submitDrunkLevel",
+          { level },
+          (res: { ok: boolean; room?: RoomState; error?: string }) => {
+            if (res.ok && res.room) {
+              setRoom(res.room);
+              resolve(res.room);
+            } else reject(new Error(res.error ?? "No se pudo confirmar nivel"));
           }
         );
       });
@@ -268,56 +319,46 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     [socket]
   );
 
-  const finishDrunkCheck = useCallback(() => {
-    if (!socket) return Promise.reject("No socket");
-    return new Promise<RoomState>((resolve, reject) => {
-      socket.emit("game:finishDrunkCheck", (res: { ok: boolean; room?: RoomState }) => {
-        if (res.ok && res.room) resolve(res.room);
-        else reject("Error");
-      });
-    });
-  }, [socket]);
-
   const markDrank = useCallback(() => {
-    if (!socket) return Promise.reject("No socket");
+    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
     return new Promise<void>((resolve, reject) => {
-      socket.emit("player:drank", (res: { ok: boolean }) => {
+      socket.emit("player:drank", (res: { ok: boolean; error?: string }) => {
         if (res.ok) resolve();
-        else reject("Error");
+        else reject(new Error(res.error ?? "Error"));
       });
     });
   }, [socket]);
 
   const markCompleted = useCallback(() => {
-    if (!socket) return Promise.reject("No socket");
+    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
     return new Promise<void>((resolve, reject) => {
-      socket.emit("player:completed", (res: { ok: boolean }) => {
+      socket.emit("player:completed", (res: { ok: boolean; error?: string }) => {
         if (res.ok) resolve();
-        else reject("Error");
+        else reject(new Error(res.error ?? "Error"));
       });
     });
   }, [socket]);
 
   const markSkipped = useCallback(() => {
-    if (!socket) return Promise.reject("No socket");
+    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
     return new Promise<void>((resolve, reject) => {
-      socket.emit("player:skipped", (res: { ok: boolean }) => {
+      socket.emit("player:skipped", (res: { ok: boolean; error?: string }) => {
         if (res.ok) resolve();
-        else reject("Error");
+        else reject(new Error(res.error ?? "Error"));
       });
     });
   }, [socket]);
 
   const addChallenge = useCallback(
     (challenge: Omit<Challenge, "id">) => {
-      if (!socket) return Promise.reject("No socket");
+      if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
       return new Promise<RoomState>((resolve, reject) => {
         socket.emit(
           "host:addChallenge",
           challenge,
           (res: { ok: boolean; room?: RoomState }) => {
             if (res.ok && res.room) resolve(res.room);
-            else reject("Error");
+            else reject(new Error("Error al añadir reto"));
           }
         );
       });
@@ -326,11 +367,11 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   );
 
   const continueGame = useCallback(() => {
-    if (!socket) return Promise.reject("No socket");
+    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
     return new Promise<RoomState>((resolve, reject) => {
       socket.emit("host:continue", (res: { ok: boolean; room?: RoomState }) => {
         if (res.ok && res.room) resolve(res.room);
-        else reject("Error");
+        else reject(new Error("Error al continuar"));
       });
     });
   }, [socket]);
@@ -355,8 +396,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         startGame,
         beginSpin,
         completeSpin,
-        updateDrunkLevels,
-        finishDrunkCheck,
+        submitDrunkLevel,
         markDrank,
         markCompleted,
         markSkipped,

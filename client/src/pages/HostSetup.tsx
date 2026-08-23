@@ -12,7 +12,7 @@ import type {
 import {
   ALL_VIBES,
   ALL_CHALLENGE_TYPES,
-  ALL_ORIENTATIONS,
+  COUPLE_ORIENTATIONS,
   ALL_CONTENT_LEVELS,
   VIBE_LABELS,
   CHALLENGE_TYPE_LABELS,
@@ -37,9 +37,9 @@ export default function HostSetup() {
   const [challengeTypes, setChallengeTypes] = useState<ChallengeType[]>([
     ...ALL_CHALLENGE_TYPES,
   ]);
+  const [coupleChallengesEnabled, setCoupleChallengesEnabled] = useState(true);
   const [orientations, setOrientations] = useState<OrientationPref[]>([
-    "pan",
-    "neutro",
+    ...COUPLE_ORIENTATIONS,
   ]);
   const [contentLevel, setContentLevel] = useState<ContentLevel>("medio");
   const [stripEnabled, setStripEnabled] = useState(true);
@@ -71,20 +71,28 @@ export default function HostSetup() {
     const settings: GameSettings = {
       vibes,
       challengeTypes,
-      orientations,
+      coupleChallengesEnabled,
+      orientations: coupleChallengesEnabled ? orientations : ["neutro"],
       contentLevel,
       stripEnabled,
     };
+    const roomCode = code || room?.code;
+    if (!roomCode) {
+      alert("No hay código de sala. Vuelve a crear la partida.");
+      return;
+    }
     try {
       updateHostProfile({
         name: hostName.trim() || undefined,
         drunkLevel: hostDrunk,
         drinksAlcohol: hostDrinks,
       });
-      await setSettings(settings);
-      navigate(`/lobby/${code || room?.code}`);
-    } catch {
-      alert("Error al guardar configuración");
+      await setSettings(settings, roomCode);
+      navigate(`/lobby/${roomCode}`);
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : "Error al guardar configuración";
+      alert(msg);
     }
   };
 
@@ -141,18 +149,51 @@ export default function HostSetup() {
       {step === 2 && (
         <div className="card">
           <h2>Orientación y contenido</h2>
-          <p className="muted">Filtra retos de pareja/contacto.</p>
+          <p className="muted">
+            Los retos neutros siempre entran. Activa pareja/contacto si quieres
+            romance.
+          </p>
+          <label className="label">Retos de pareja / contacto físico</label>
           <div className="chip-grid">
-            {ALL_ORIENTATIONS.map((o) => (
-              <button
-                key={o}
-                className={`chip ${orientations.includes(o) ? "selected" : ""}`}
-                onClick={() => toggle(orientations, o, setOrientations)}
-              >
-                {ORIENTATION_LABELS[o]}
-              </button>
-            ))}
+            <button
+              className={`chip ${coupleChallengesEnabled ? "selected" : ""}`}
+              onClick={() => {
+                sounds.click();
+                setCoupleChallengesEnabled(true);
+                if (orientations.length === 0) {
+                  setOrientations([...COUPLE_ORIENTATIONS]);
+                }
+              }}
+            >
+              Activados
+            </button>
+            <button
+              className={`chip ${!coupleChallengesEnabled ? "selected" : ""}`}
+              onClick={() => {
+                sounds.click();
+                setCoupleChallengesEnabled(false);
+              }}
+            >
+              Desactivados (solo neutro)
+            </button>
           </div>
+          {coupleChallengesEnabled && (
+            <>
+              <label className="label">Orientaciones para retos de pareja</label>
+              <p className="muted">Multiselección. Neutro no aplica aquí.</p>
+              <div className="chip-grid">
+                {COUPLE_ORIENTATIONS.map((o) => (
+                  <button
+                    key={o}
+                    className={`chip ${orientations.includes(o) ? "selected" : ""}`}
+                    onClick={() => toggle(orientations, o, setOrientations)}
+                  >
+                    {ORIENTATION_LABELS[o]}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <label className="label">Nivel de contenido</label>
           <div className="chip-grid">
             {ALL_CONTENT_LEVELS.map((c) => (
@@ -242,7 +283,7 @@ export default function HostSetup() {
             Vibes: {vibes.map((v) => VIBE_LABELS[v]).join(", ")}
           </p>
           <p className="muted">
-            Retos: {challengeTypes.length} tipos · Contenido:{" "}
+            Retos pareja: {coupleChallengesEnabled ? "sí" : "no"} · Contenido:{" "}
             {CONTENT_LEVEL_LABELS[contentLevel]}
           </p>
           <p className="muted">

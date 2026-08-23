@@ -92,7 +92,7 @@ export const INITIAL_CHALLENGES: Challenge[] = [
   { id: "k09", type: "karaoke", intensity: 10, vibes: ["locura", "competicion"], text: "{player}, todos cantan una palabra seguida. Si fallas la cadena, bebes.", baseDrinks: 2, orientations: ["neutro", "pan", "hetero", "gay", "lesbiana", "bi"], contentLevel: "sin_limite" },
   { id: "k10", type: "karaoke", intensity: 4, vibes: ["risas"], text: "{player}, imita el estilo de canto de un artista famoso (sin decir quién).", baseDrinks: 1, orientations: ["neutro", "pan", "hetero", "gay", "lesbiana", "bi"], contentLevel: "medio" },
   { id: "k11", type: "karaoke", intensity: 5, vibes: ["nostalgia", "risas"], text: "{player}, canta el tema de una serie que veías de niño.", baseDrinks: 1, orientations: ["neutro", "pan", "hetero", "gay", "lesbiana", "bi"], contentLevel: "medio" },
-  { id: "k12", type: "karaoke", intensity: 8, vibes: ["locura", "risas"], text: "{player}, metal con letra de anuncio de supermercado.", baseDrinks: 2, orientations: ["neutro", "pan", "hetero", "gay", "lesbiana", "bi"], contentLevel: "sin_limite" },
+  { id: "k12", type: "karaoke", intensity: 8, vibes: ["locura", "risas"], text: "{player}, canta el estribillo de la canción más vergonzosa de tu playlist como si fueras concursante de talent show.", baseDrinks: 2, orientations: ["neutro", "pan", "hetero", "gay", "lesbiana", "bi"], contentLevel: "sin_limite" },
 
   // === PHONE (83-96) ===
   { id: "ph01", type: "phone", intensity: 2, vibes: ["risas"], text: "{player}, muestra la foto más random de tu galería (sin explicar mucho).", baseDrinks: 1, orientations: ["neutro", "pan", "hetero", "gay", "lesbiana", "bi"], contentLevel: "suave" },

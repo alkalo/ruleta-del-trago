@@ -44,6 +44,7 @@ export interface Challenge {
 export interface GameSettings {
   vibes: Vibe[];
   challengeTypes: ChallengeType[];
+  coupleChallengesEnabled: boolean;
   orientations: OrientationPref[];
   contentLevel: ContentLevel;
   stripEnabled: boolean;
@@ -85,6 +86,8 @@ export interface RoomState {
   customChallenges: Challenge[];
   activeSpin: SpinResult | null;
   resolvedTargets: string[];
+  lastDrunkCheckRound: number;
+  drunkCheckSubmitted: Record<string, boolean>;
 }
 
 export interface SessionAlert {
@@ -175,6 +178,14 @@ export const ALL_ORIENTATIONS: OrientationPref[] = [
   "bi",
   "pan",
   "neutro",
+];
+
+export const COUPLE_ORIENTATIONS: OrientationPref[] = [
+  "hetero",
+  "gay",
+  "lesbiana",
+  "bi",
+  "pan",
 ];
 
 export const ALL_CONTENT_LEVELS: ContentLevel[] = [

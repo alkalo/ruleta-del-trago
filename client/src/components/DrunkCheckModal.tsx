@@ -4,63 +4,95 @@ import { sounds } from "../utils/sounds";
 
 interface Props {
   players: Player[];
-  onSubmit: (updates: Record<string, number>) => void;
+  playerId: string;
+  drunkCheckSubmitted: Record<string, boolean>;
+  onSubmit: (level: number) => Promise<void>;
   roundLabel?: string;
 }
 
-export default function DrunkCheckModal({ players, onSubmit, roundLabel }: Props) {
-  const [levels, setLevels] = useState<Record<string, number>>(() => {
-    const init: Record<string, number> = {};
-    players.forEach((p) => {
-      init[p.id] = p.drunkLevel;
-    });
-    return init;
-  });
+export default function DrunkCheckModal({
+  players,
+  playerId,
+  drunkCheckSubmitted,
+  onSubmit,
+  roundLabel,
+}: Props) {
+  const me = players.find((p) => p.id === playerId);
+  const [level, setLevel] = useState(me?.drunkLevel ?? 5);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = () => {
-    sounds.click();
-    onSubmit(levels);
-  };
+  const connected = players.filter((p) => p.connected);
+  const submitted = drunkCheckSubmitted[playerId] === true;
+  const pending = connected.filter((p) => !drunkCheckSubmitted[p.id]);
 
   const avg =
-    players.length > 0
+    connected.length > 0
       ? (
-          players.reduce((s, p) => s + (levels[p.id] ?? p.drunkLevel), 0) /
-          players.length
+          connected.reduce((s, p) => s + p.drunkLevel, 0) / connected.length
         ).toFixed(1)
       : "0";
+
+  const handleSubmit = async () => {
+    sounds.click();
+    setSubmitting(true);
+    try {
+      await onSubmit(level);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="challenge-card">
       <h2>⏸️ Pausa borrachera</h2>
       <p className="muted">
-        {roundLabel ?? "¿Cómo vais ahora?"} Media del grupo: <strong>{avg}</strong> ·
-        Objetivo: 7.5–8.5
+        {roundLabel ?? "¿Cómo vas ahora?"} Media del grupo: <strong>{avg}</strong>{" "}
+        · Objetivo: 7.5–8.5
       </p>
-      {players.map((p) => (
-        <div key={p.id} className="slider-row">
-          <label className="label">
-            {p.name} — {levels[p.id] ?? p.drunkLevel}/10
-            {p.isFino && " 🍻 FINO"}
-          </label>
-          <input
-            type="range"
-            min={1}
-            max={10}
-            step={0.5}
-            value={levels[p.id] ?? p.drunkLevel}
-            onChange={(e) =>
-              setLevels((prev) => ({
-                ...prev,
-                [p.id]: Number(e.target.value),
-              }))
-            }
-          />
-        </div>
-      ))}
-      <button className="btn btn-cyan" onClick={handleSubmit}>
-        Actualizar y seguir
-      </button>
+
+      {!submitted && me && (
+        <>
+          <div className="slider-row">
+            <label className="label">
+              Tu nivel — {level}/10
+              {me.isFino && " 🍻 FINO"}
+            </label>
+            <input
+              type="range"
+              min={1}
+              max={10}
+              step={0.5}
+              value={level}
+              onChange={(e) => setLevel(Number(e.target.value))}
+            />
+          </div>
+          <button
+            className="btn btn-cyan"
+            onClick={handleSubmit}
+            disabled={submitting}
+          >
+            Confirmar mi nivel
+          </button>
+        </>
+      )}
+
+      {submitted && (
+        <p className="muted" style={{ textAlign: "center" }}>
+          ✓ Nivel confirmado. Esperando al resto…
+        </p>
+      )}
+
+      {pending.length > 0 && (
+        <p className="muted" style={{ marginTop: 12 }}>
+          Faltan: {pending.map((p) => p.name).join(", ")}
+        </p>
+      )}
+
+      {pending.length === 0 && connected.length > 0 && (
+        <p className="muted" style={{ marginTop: 12, textAlign: "center" }}>
+          Todos confirmaron. ¡A seguir!
+        </p>
+      )}
     </div>
   );
 }

@@ -45,6 +45,21 @@ function generateCode(): string {
   return code;
 }
 
+function resetDrunkCheckSubmissions(room: RoomState): void {
+  room.drunkCheckSubmitted = {};
+  for (const p of room.players.filter((pl) => pl.connected)) {
+    room.drunkCheckSubmitted[p.id] = false;
+  }
+}
+
+function allDrunkCheckSubmitted(room: RoomState): boolean {
+  const active = room.players.filter((p) => p.connected);
+  return (
+    active.length > 0 &&
+    active.every((p) => room.drunkCheckSubmitted[p.id] === true)
+  );
+}
+
 export class RoomManager {
   private rooms = new Map<string, RoomState>();
 
@@ -80,6 +95,8 @@ export class RoomManager {
       customChallenges: [],
       activeSpin: null,
       resolvedTargets: [],
+      lastDrunkCheckRound: -1,
+      drunkCheckSubmitted: { [hostId]: false },
     };
 
     this.rooms.set(code, room);
@@ -107,6 +124,9 @@ export class RoomManager {
       existing.drunkLevel = Math.min(10, Math.max(1, drunkLevel));
       existing.drinksAlcohol = drinksAlcohol;
       existing.isFino = isFino(existing.drunkLevel);
+      if (room.phase === "drunk_check" && room.drunkCheckSubmitted[playerId] === undefined) {
+        room.drunkCheckSubmitted[playerId] = false;
+      }
       return room;
     }
 
@@ -122,6 +142,9 @@ export class RoomManager {
       existingByName.drunkLevel = Math.min(10, Math.max(1, drunkLevel));
       existingByName.drinksAlcohol = drinksAlcohol;
       existingByName.isFino = isFino(existingByName.drunkLevel);
+      if (room.phase === "drunk_check" && room.drunkCheckSubmitted[playerId] === undefined) {
+        room.drunkCheckSubmitted[playerId] = false;
+      }
       return room;
     }
 
@@ -141,12 +164,37 @@ export class RoomManager {
     };
 
     room.players.push(player);
+    room.drunkCheckSubmitted[playerId] = false;
     return room;
   }
 
-  setHostSettings(code: string, settings: GameSettings): RoomState | null {
+  rejoinHost(code: string, socketId: string): RoomState | null {
     const room = this.getRoom(code);
     if (!room) return null;
+
+    const host = room.players.find((p) => p.isHost);
+    if (!host) return null;
+
+    const oldId = host.id;
+    host.id = socketId;
+    host.connected = true;
+    room.hostId = socketId;
+
+    if (oldId !== socketId) {
+      if (room.drunkCheckSubmitted[oldId] !== undefined) {
+        room.drunkCheckSubmitted[socketId] = room.drunkCheckSubmitted[oldId];
+        delete room.drunkCheckSubmitted[oldId];
+      } else {
+        room.drunkCheckSubmitted[socketId] = false;
+      }
+    }
+
+    return room;
+  }
+
+  setHostSettings(code: string, hostId: string, settings: GameSettings): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room || room.hostId !== hostId) return null;
     room.settings = settings;
     room.phase = "lobby";
     return room;
@@ -160,6 +208,51 @@ export class RoomManager {
     room.phase = "drunk_check";
     room.round = 0;
     room.drunkCheckRound = 1;
+    resetDrunkCheckSubmissions(room);
+    return room;
+  }
+
+  submitDrunkLevel(
+    code: string,
+    playerId: string,
+    level: number
+  ): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room || room.phase !== "drunk_check") return null;
+
+    const player = room.players.find((p) => p.id === playerId && p.connected);
+    if (!player) return null;
+
+    player.drunkLevel = Math.min(10, Math.max(1, level));
+    player.isFino = isFino(player.drunkLevel);
+    room.drunkCheckSubmitted[playerId] = true;
+
+    if (player.isFino) {
+      this.addAlert(
+        room,
+        "fino",
+        `🍻 ${player.name} ya va FINO (${player.drunkLevel}/10). La sala entera lo sabe.`,
+        player.id
+      );
+    }
+
+    if (!allDrunkCheckSubmitted(room)) return room;
+
+    room.lastDrunkCheckRound = room.round;
+    room.phase = "challenge";
+
+    const active = room.players.filter((p) => p.connected);
+    const allSweet =
+      active.length > 0 && active.every((p) => isInSweetSpot(p.drunkLevel));
+    if (allSweet && active.length > 0 && room.round > 0) {
+      this.addAlert(
+        room,
+        "info",
+        "🎉 ¡NIVEL PERFECTO! Todos entre 7.5 y 8.5. Sois unos profesionales."
+      );
+      room.phase = "ended";
+    }
+
     return room;
   }
 
@@ -241,10 +334,11 @@ export class RoomManager {
       if (pending.length > 0) return null;
     }
 
-    if (shouldTriggerDrunkCheck(room.round)) {
+    if (shouldTriggerDrunkCheck(room.round, room.lastDrunkCheckRound)) {
       room.phase = "drunk_check";
       room.drunkCheckRound++;
       room.activeSpin = null;
+      resetDrunkCheckSubmissions(room);
       return room;
     }
 
@@ -355,6 +449,81 @@ export class RoomManager {
       soberAlternatives,
       displayTexts,
     };
+  }
+
+  hostMarkDrank(
+    code: string,
+    hostId: string,
+    targetPlayerId: string
+  ): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room || room.hostId !== hostId) return null;
+    if (!room.activeSpin?.targets.includes(targetPlayerId)) return null;
+    if (room.resolvedTargets.includes(targetPlayerId)) return room;
+    const result = this.markDrank(code, targetPlayerId);
+    if (!result) return null;
+    result.resolvedTargets.push(targetPlayerId);
+    return result;
+  }
+
+  hostMarkCompleted(
+    code: string,
+    hostId: string,
+    targetPlayerId: string
+  ): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room || room.hostId !== hostId) return null;
+    if (!room.activeSpin?.targets.includes(targetPlayerId)) return null;
+    if (room.resolvedTargets.includes(targetPlayerId)) return room;
+    const result = this.markCompleted(code, targetPlayerId);
+    if (!result) return null;
+    result.resolvedTargets.push(targetPlayerId);
+    return result;
+  }
+
+  hostMarkSkipped(
+    code: string,
+    hostId: string,
+    targetPlayerId: string
+  ): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room || room.hostId !== hostId) return null;
+    if (!room.activeSpin?.targets.includes(targetPlayerId)) return null;
+    if (room.resolvedTargets.includes(targetPlayerId)) return room;
+    const result = this.markSkipped(code, targetPlayerId);
+    if (!result) return null;
+    result.resolvedTargets.push(targetPlayerId);
+    return result;
+  }
+
+  playerMarkDrank(code: string, playerId: string): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room || !room.activeSpin?.targets.includes(playerId)) return null;
+    if (room.resolvedTargets.includes(playerId)) return room;
+    const result = this.markDrank(code, playerId);
+    if (!result) return null;
+    result.resolvedTargets.push(playerId);
+    return result;
+  }
+
+  playerMarkCompleted(code: string, playerId: string): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room || !room.activeSpin?.targets.includes(playerId)) return null;
+    if (room.resolvedTargets.includes(playerId)) return room;
+    const result = this.markCompleted(code, playerId);
+    if (!result) return null;
+    result.resolvedTargets.push(playerId);
+    return result;
+  }
+
+  playerMarkSkipped(code: string, playerId: string): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room || !room.activeSpin?.targets.includes(playerId)) return null;
+    if (room.resolvedTargets.includes(playerId)) return room;
+    const result = this.markSkipped(code, playerId);
+    if (!result) return null;
+    result.resolvedTargets.push(playerId);
+    return result;
   }
 
   markDrank(code: string, playerId: string): RoomState | null {
@@ -475,6 +644,12 @@ export class RoomManager {
       if (
         c.orientations.length > 0 &&
         !c.orientations.some((o) => orientations.includes(o))
+      )
+        return false;
+      if (
+        !room.settings!.coupleChallengesEnabled &&
+        (c.type === "couple" ||
+          (c.orientations.length > 0 && !c.orientations.includes("neutro")))
       )
         return false;
       return true;

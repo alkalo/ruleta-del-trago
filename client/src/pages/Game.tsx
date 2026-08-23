@@ -20,8 +20,7 @@ export default function Game() {
     lastSpinResult,
     beginSpin,
     completeSpin,
-    updateDrunkLevels,
-    finishDrunkCheck,
+    submitDrunkLevel,
     markDrank,
     markCompleted,
     markSkipped,
@@ -30,7 +29,6 @@ export default function Game() {
 
   const [localSpinning, setLocalSpinning] = useState(false);
   const [winnerIndex, setWinnerIndex] = useState<number | null>(null);
-  const [actedTargets, setActedTargets] = useState<Set<string>>(new Set());
 
   const players = room?.players.filter((p) => p.connected) ?? [];
   const names = players.map((p) => p.name);
@@ -41,9 +39,15 @@ export default function Game() {
     return null;
   }, [lastSpinResult, room?.activeSpin]);
 
-  useEffect(() => {
-    if (spinDisplay) setActedTargets(new Set());
-  }, [spinDisplay?.challenge?.id, spinDisplay?.targets?.join(",")]);
+  const resolvedTargets = room?.resolvedTargets ?? [];
+  const pendingTargets =
+    spinDisplay?.targets?.filter((tid) => !resolvedTargets.includes(tid)) ?? [];
+
+  const canSpin =
+    isHost &&
+    !localSpinning &&
+    room?.phase === "challenge" &&
+    pendingTargets.length === 0;
 
   useEffect(() => {
     if (room?.sessionAlerts.length) {
@@ -54,9 +58,8 @@ export default function Game() {
   }, [room?.sessionAlerts.length]);
 
   const handleSpin = async () => {
-    if (!isHost) return;
+    if (!canSpin) return;
     sounds.click();
-    setActedTargets(new Set());
     setWinnerIndex(null);
 
     try {
@@ -67,7 +70,7 @@ export default function Game() {
       const idx = Math.floor(Math.random() * names.length);
       setWinnerIndex(idx);
     } catch {
-      alert("No se pudo girar");
+      alert("Completa la ronda antes de girar otra vez");
     }
   };
 
@@ -81,12 +84,11 @@ export default function Game() {
     }
   }, [isHost, completeSpin]);
 
-  const handleDrunkSubmit = async (updates: Record<string, number>) => {
+  const handleDrunkSubmit = async (level: number) => {
     try {
-      await updateDrunkLevels(updates);
-      await finishDrunkCheck();
+      await submitDrunkLevel(level);
     } catch {
-      alert("Error al actualizar niveles");
+      alert("Error al confirmar nivel");
     }
   };
 
@@ -99,7 +101,6 @@ export default function Game() {
       if (action === "drank") await markDrank();
       else if (action === "completed") await markCompleted();
       else await markSkipped();
-      setActedTargets((prev) => new Set(prev).add(targetId));
     } catch {
       /* ignore */
     }
@@ -152,8 +153,14 @@ export default function Game() {
       {phase === "drunk_check" && (
         <DrunkCheckModal
           players={players}
+          playerId={playerId}
+          drunkCheckSubmitted={room.drunkCheckSubmitted}
           onSubmit={handleDrunkSubmit}
-          roundLabel={`Pausa #${room.drunkCheckRound}`}
+          roundLabel={
+            room.round === 0
+              ? "Antes de empezar — confirma tu nivel"
+              : `Pausa #${room.drunkCheckRound}`
+          }
         />
       )}
 
@@ -166,10 +173,26 @@ export default function Game() {
             onSpinComplete={isHost ? onSpinComplete : undefined}
           />
 
-          {isHost && !localSpinning && phase !== "spinning" && (
-            <button className="btn btn-primary" onClick={handleSpin}>
-              🎰 GIRAR RULETA
-            </button>
+          {isHost && (
+            <>
+              {canSpin ? (
+                <button className="btn btn-primary" onClick={handleSpin}>
+                  🎰 GIRAR RULETA
+                </button>
+              ) : (
+                !localSpinning &&
+                phase === "challenge" &&
+                pendingTargets.length > 0 && (
+                  <p className="muted" style={{ textAlign: "center" }}>
+                    Esperando que marquen:{" "}
+                    {pendingTargets
+                      .map((tid) => players.find((p) => p.id === tid)?.name)
+                      .filter(Boolean)
+                      .join(", ")}
+                  </p>
+                )
+              )}
+            </>
           )}
 
           {!isHost && phase === "spinning" && (
@@ -183,6 +206,7 @@ export default function Game() {
               {targets.map((tid) => {
                 const player = players.find((p) => p.id === tid);
                 if (!player) return null;
+                const acted = resolvedTargets.includes(tid);
                 return (
                   <div key={tid}>
                     <h2 style={{ color: "var(--yellow)" }}>
@@ -200,7 +224,7 @@ export default function Game() {
                       onDrank={() => handleAction(tid, "drank")}
                       onCompleted={() => handleAction(tid, "completed")}
                       onSkipped={() => handleAction(tid, "skipped")}
-                      acted={actedTargets.has(tid)}
+                      acted={acted}
                     />
                   </div>
                 );

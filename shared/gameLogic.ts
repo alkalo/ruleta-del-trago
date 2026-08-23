@@ -35,8 +35,11 @@ export function isInSweetSpot(drunkLevel: number): boolean {
   return drunkLevel >= 7.5 && drunkLevel <= 8.5;
 }
 
-export function shouldTriggerDrunkCheck(round: number): boolean {
-  return round > 0 && round % 4 === 0;
+export function shouldTriggerDrunkCheck(
+  round: number,
+  lastDrunkCheckRound: number
+): boolean {
+  return round > 0 && round % 4 === 0 && lastDrunkCheckRound !== round;
 }
 
 const SOBER_ALTERNATIVES = [
