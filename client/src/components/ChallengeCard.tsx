@@ -33,11 +33,10 @@ export default function ChallengeCard({
   acted,
 }: Props) {
   const whose = isTarget ? "tu" : "su";
+  const isDrinkChallenge = challenge.type === "drink";
   const skipAmount = skipDrinkAmount ?? drinkAmount;
-  const skipDiffers =
-    skipAmount !== undefined &&
-    drinkAmount !== undefined &&
-    skipAmount !== drinkAmount;
+  const skipLabel =
+    skipAmount !== undefined ? formatDrinkAmount(skipAmount) : "";
 
   return (
     <div className="challenge-card">
@@ -45,29 +44,32 @@ export default function ChallengeCard({
       <span className="badge">{CHALLENGE_TYPE_LABELS[challenge.type]}</span>
       <p className="challenge-text">{displayText}</p>
 
-      {drinksAlcohol && drinkAmount !== undefined && drinkAmount > 0 && (
+      {drinksAlcohol && isDrinkChallenge && drinkAmount !== undefined && drinkAmount > 0 && (
         <p>
-          🍺 {isTarget ? "Tú bebes" : "Bebe"}:{" "}
+          🍺 {isTarget ? "Te toca beber" : "Le toca beber"}:{" "}
           <strong>{formatDrinkAmount(drinkAmount)}</strong>
           <span className="muted"> — adaptado a {whose} nivel</span>
         </p>
       )}
 
-      {drinksAlcohol && skipDiffers && skipAmount !== undefined && (
-        <p className="muted">
-          Si no lo haces: {formatDrinkAmount(skipAmount)} (también adaptado)
+      {drinksAlcohol && !isDrinkChallenge && skipAmount !== undefined && skipAmount > 0 && (
+        <p>
+          Si pasas, {isTarget ? "bebes" : "bebe"}:{" "}
+          <strong>{skipLabel}</strong>
+          <span className="muted"> — adaptado a {whose} nivel</span>
         </p>
       )}
 
       {!drinksAlcohol && soberAlternative && (
         <p>
-          🧃 Castigo sobrio: <strong>{soberAlternative}</strong>
+          🧃 {isDrinkChallenge ? "En vez de beber" : "Si pasas"}:{" "}
+          <strong>{soberAlternative}</strong>
         </p>
       )}
 
       {isTarget && !acted && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-          {drinksAlcohol && drinkAmount !== undefined && drinkAmount > 0 && (
+          {isDrinkChallenge && drinksAlcohol && drinkAmount !== undefined && drinkAmount > 0 ? (
             <button
               className="btn btn-primary"
               onClick={() => {
@@ -77,27 +79,30 @@ export default function ChallengeCard({
             >
               He bebido 🍻
             </button>
+          ) : (
+            <button
+              className="btn btn-cyan"
+              onClick={() => {
+                sounds.success();
+                onCompleted();
+              }}
+            >
+              Lo hice ✓
+            </button>
           )}
-          <button
-            className="btn btn-cyan"
-            onClick={() => {
-              sounds.success();
-              onCompleted();
-            }}
-          >
-            Reto cumplido ✓
-          </button>
-          <button
-            className="btn btn-danger"
-            onClick={() => {
-              sounds.alert();
-              onSkipped();
-            }}
-          >
-            {drinksAlcohol && skipAmount !== undefined
-              ? "No quiero / bebo penalización"
-              : "No quiero / castigo sobrio"}
-          </button>
+          {!isDrinkChallenge && (
+            <button
+              className="btn btn-danger"
+              onClick={() => {
+                sounds.alert();
+                onSkipped();
+              }}
+            >
+              {drinksAlcohol && skipLabel
+                ? `Paso y bebo ${skipLabel}`
+                : "Paso / hago el castigo"}
+            </button>
+          )}
         </div>
       )}
 

@@ -382,24 +382,29 @@ export default function Game() {
                             ? "Si no pueden marcar en su móvil, el host cierra la ronda:"
                             : "Sin conexión. El host puede cerrar su ronda:"}
                         </p>
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => handleAction(tid, "drank")}
-                        >
-                          Marcar bebido por {player.name}
-                        </button>
-                        <button
-                          className="btn btn-cyan"
-                          onClick={() => handleAction(tid, "completed")}
-                        >
-                          Marcar cumplido por {player.name}
-                        </button>
-                        <button
-                          className="btn btn-danger"
-                          onClick={() => handleAction(tid, "skipped")}
-                        >
-                          Marcar skip por {player.name}
-                        </button>
+                        {challenge.type === "drink" && player.drinksAlcohol ? (
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => handleAction(tid, "drank")}
+                          >
+                            Marcar bebido por {player.name}
+                          </button>
+                        ) : (
+                          <button
+                            className="btn btn-cyan"
+                            onClick={() => handleAction(tid, "completed")}
+                          >
+                            Marcar cumplido por {player.name}
+                          </button>
+                        )}
+                        {challenge.type !== "drink" && (
+                          <button
+                            className="btn btn-danger"
+                            onClick={() => handleAction(tid, "skipped")}
+                          >
+                            Marcar paso por {player.name}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
