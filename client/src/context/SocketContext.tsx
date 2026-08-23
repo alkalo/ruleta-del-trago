@@ -51,6 +51,175 @@ function saveSession(data: SessionData): void {
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(data));
 }
 
+export function savePlayerSession(data: SessionData): void {
+  saveSession({
+    code: data.code.trim().toUpperCase(),
+    name: data.name,
+    drunkLevel: data.drunkLevel,
+    drinksAlcohol: data.drinksAlcohol,
+    gender: normalizeGender(data.gender),
+    isHost: data.isHost,
+  });
+}
+
+export class RoomRejoinError extends Error {
+  readonly kind: "expired" | "failed";
+  constructor(kind: "expired" | "failed", message: string) {
+    super(message);
+    this.name = "RoomRejoinError";
+    this.kind = kind;
+  }
+}
+
+function pathRoomCode(): string | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/(lobby|game)\/([^/]+)/i);
+  return match?.[2]?.toUpperCase() ?? null;
+}
+
+function setupQueryCode(): string | null {
+  if (typeof window === "undefined") return null;
+  if (!window.location.pathname.startsWith("/host/setup")) return null;
+  const code = new URLSearchParams(window.location.search).get("code");
+  return code?.trim().toUpperCase() || null;
+}
+
+type AckRes = {
+  ok: boolean;
+  room?: RoomState;
+  error?: string;
+  errorCode?: string;
+  exists?: boolean;
+};
+
+function ackEmit(
+  socket: Socket,
+  event: string,
+  payload: unknown,
+  timeoutMs = 8000
+): Promise<AckRes> {
+  return new Promise((resolve, reject) => {
+    socket
+      .timeout(timeoutMs)
+      .emit(event, payload, (err: Error | null, res: AckRes) => {
+        if (err) {
+          reject(new RoomRejoinError("expired", "La sala expiró. Crea otra."));
+          return;
+        }
+        resolve(res ?? { ok: false });
+      });
+  });
+}
+
+function waitConnected(socket: Socket, timeoutMs = 8000): Promise<void> {
+  if (socket.connected) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      socket.off("connect", onConnect);
+      reject(new RoomRejoinError("expired", "La sala expiró. Crea otra."));
+    }, timeoutMs);
+    const onConnect = () => {
+      window.clearTimeout(timer);
+      resolve();
+    };
+    socket.once("connect", onConnect);
+  });
+}
+
+let rejoinInFlight: { key: string; promise: Promise<RoomState> } | null = null;
+
+async function performRejoin(
+  socket: Socket,
+  code: string,
+  setRoom: (room: RoomState) => void
+): Promise<RoomState> {
+  const normalized = code.trim().toUpperCase();
+  if (rejoinInFlight?.key === normalized) {
+    return rejoinInFlight.promise;
+  }
+
+  const run = async (): Promise<RoomState> => {
+    await waitConnected(socket);
+    const session = readSession();
+    const gender = normalizeGender(session?.gender);
+    const name = session?.name?.trim() ?? "";
+    const drunkLevel = session?.drunkLevel ?? 5;
+    const drinksAlcohol = session?.drinksAlcohol ?? true;
+    const sessionCode = session?.code?.trim().toUpperCase() ?? "";
+    const sameRoom = sessionCode === normalized;
+    const tryAsHost = sameRoom && session?.isHost !== false;
+
+    if (tryAsHost) {
+      const hostRes = await ackEmit(socket, "room:rejoinHost", {
+        code: normalized,
+        name,
+      });
+      if (hostRes.ok && hostRes.room) {
+        savePlayerSession({
+          code: hostRes.room.code,
+          name: name || session?.name || "Host",
+          drunkLevel,
+          drinksAlcohol,
+          gender,
+          isHost: true,
+        });
+        setRoom(hostRes.room);
+        return hostRes.room;
+      }
+      if (hostRes.errorCode === "ROOM_EXPIRED") {
+        throw new RoomRejoinError("expired", "La sala expiró. Crea otra.");
+      }
+    }
+
+    if (!name) {
+      const lookup = await ackEmit(socket, "room:lookup", {
+        code: normalized,
+      });
+      if (!lookup.exists) {
+        throw new RoomRejoinError("expired", "La sala expiró. Crea otra.");
+      }
+      throw new RoomRejoinError(
+        "failed",
+        "No hay sesión. Entra de nuevo con el mismo nombre."
+      );
+    }
+
+    const joinRes = await ackEmit(socket, "room:join", {
+      code: normalized,
+      name,
+      drunkLevel,
+      drinksAlcohol,
+      gender,
+    });
+    if (joinRes.ok && joinRes.room) {
+      savePlayerSession({
+        code: joinRes.room.code,
+        name,
+        drunkLevel,
+        drinksAlcohol,
+        gender,
+        isHost: joinRes.room.hostId === socket.id,
+      });
+      setRoom(joinRes.room);
+      return joinRes.room;
+    }
+    if (joinRes.errorCode === "ROOM_EXPIRED") {
+      throw new RoomRejoinError("expired", "La sala expiró. Crea otra.");
+    }
+    throw new RoomRejoinError(
+      "failed",
+      joinRes.error ??
+        "No se pudo reconectar. Entra de nuevo con el mismo nombre."
+    );
+  };
+
+  const promise = run().finally(() => {
+    if (rejoinInFlight?.key === normalized) rejoinInFlight = null;
+  });
+  rejoinInFlight = { key: normalized, promise };
+  return promise;
+}
+
 export interface SpinResultPayload {
   targets: string[];
   mode: string;
@@ -92,6 +261,7 @@ interface SocketContextValue {
   markCompleted: () => Promise<void>;
   markSkipped: () => Promise<void>;
   continueGame: () => Promise<RoomState>;
+  rejoinByCode: (code: string) => Promise<RoomState>;
 }
 
 const SocketContext = createContext<SocketContextValue | null>(null);
@@ -116,40 +286,12 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       if (r.activeSpin) setLastSpinResult(r.activeSpin);
     });
 
-    const joinAsPlayer = (data: SessionData) => {
-      s.emit(
-        "room:join",
-        {
-          code: data.code,
-          name: data.name,
-          drunkLevel: data.drunkLevel,
-          drinksAlcohol: data.drinksAlcohol,
-          gender: normalizeGender(data.gender),
-        },
-        (joinRes: { ok: boolean; room?: RoomState }) => {
-          if (joinRes.ok && joinRes.room) setRoom(joinRes.room);
-        }
-      );
-    };
-
     const tryRejoin = () => {
-      const data = readSession();
-      if (!data?.code) return;
-      if (data.isHost === false) {
-        joinAsPlayer(data);
-        return;
-      }
-      s.emit(
-        "room:rejoinHost",
-        { code: data.code },
-        (res: { ok: boolean; room?: RoomState }) => {
-          if (res.ok && res.room) {
-            setRoom(res.room);
-            return;
-          }
-          joinAsPlayer(data);
-        }
-      );
+      const code = pathRoomCode() || setupQueryCode();
+      if (!code) return;
+      void performRejoin(s, code, setRoom).catch(() => {
+        /* Game/Lobby/setup muestran el error */
+      });
     };
 
     s.on("connect", () => {
@@ -167,7 +309,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     return new Promise<RoomState>((resolve, reject) => {
       socket.emit("room:create", (res: { ok: boolean; room?: RoomState }) => {
         if (res.ok && res.room) {
-          saveSession({
+          savePlayerSession({
             code: res.room.code,
             name: "Host",
             drunkLevel: 5,
@@ -197,12 +339,12 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           { code, name, drunkLevel, drinksAlcohol, gender },
           (res: { ok: boolean; room?: RoomState; error?: string }) => {
             if (res.ok && res.room) {
-              saveSession({
+              savePlayerSession({
                 code: res.room.code,
                 name,
                 drunkLevel,
                 drinksAlcohol,
-                gender,
+                gender: normalizeGender(gender),
                 isHost: res.room.hostId === socket.id,
               });
               setRoom(res.room);
@@ -260,19 +402,21 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     }) => {
       if (socket) socket.emit("host:updateProfile", data);
       const session = readSession();
-      if (session) {
-        saveSession({
-          ...session,
-          ...(data.name ? { name: data.name } : {}),
-          ...(data.drunkLevel !== undefined
-            ? { drunkLevel: data.drunkLevel }
-            : {}),
-          ...(data.drinksAlcohol !== undefined
-            ? { drinksAlcohol: data.drinksAlcohol }
-            : {}),
-          ...(data.gender !== undefined
-            ? { gender: normalizeGender(data.gender) }
-            : {}),
+      const code = session?.code ?? getSessionCode();
+      if (code) {
+        savePlayerSession({
+          code,
+          name: data.name || session?.name || "Host",
+          drunkLevel:
+            data.drunkLevel !== undefined
+              ? data.drunkLevel
+              : (session?.drunkLevel ?? 5),
+          drinksAlcohol:
+            data.drinksAlcohol !== undefined
+              ? data.drinksAlcohol
+              : (session?.drinksAlcohol ?? true),
+          gender: normalizeGender(data.gender ?? session?.gender),
+          isHost: session?.isHost ?? true,
         });
       }
     },
@@ -383,6 +527,18 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     });
   }, [socket]);
 
+  const rejoinByCode = useCallback(
+    (code: string) => {
+      if (!socket) {
+        return Promise.reject(
+          new RoomRejoinError("failed", "Sin conexión al servidor")
+        );
+      }
+      return performRejoin(socket, code, setRoom);
+    },
+    [socket]
+  );
+
   const playerId = socket?.id ?? "";
   const isHost = room?.hostId === playerId;
 
@@ -408,6 +564,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         markCompleted,
         markSkipped,
         continueGame,
+        rejoinByCode,
       }}
     >
       {children}

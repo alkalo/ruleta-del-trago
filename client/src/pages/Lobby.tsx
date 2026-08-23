@@ -3,11 +3,14 @@ import { useEffect } from "react";
 import { useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
 import PlayerList from "../components/PlayerList";
+import RoomLoadError from "../components/RoomLoadError";
+import { useRoomRejoin } from "../hooks/useRoomRejoin";
 import { BIRTHDAY_NAME, hasBirthdayPlayer } from "../constants/birthday";
 
 export default function Lobby() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
+  const { loadError } = useRoomRejoin(code);
   const { room, isHost, startGame, connected } = useSocket();
 
   const roomCode = code ?? room?.code ?? "";
@@ -55,6 +58,19 @@ export default function Lobby() {
       alert(`Link copiado: ${url}`);
     }
   };
+
+  if (loadError) {
+    return <RoomLoadError error={loadError} code={roomCode} />;
+  }
+
+  if (!room) {
+    return (
+      <div>
+        <h1>Cargando sala…</h1>
+        <p className="muted">Código: {roomCode}</p>
+      </div>
+    );
+  }
 
   return (
     <div>

@@ -8,11 +8,14 @@ import DrunkCheckModal from "../components/DrunkCheckModal";
 import StatsPanel from "../components/StatsPanel";
 import ChallengeCard from "../components/ChallengeCard";
 import VictoryScreen from "../components/VictoryScreen";
+import RoomLoadError from "../components/RoomLoadError";
+import { useRoomRejoin } from "../hooks/useRoomRejoin";
 import type { GameMode } from "@shared/types";
 import { BIRTHDAY_NAME, isBirthdayName } from "../constants/birthday";
 
 export default function Game() {
   const { code } = useParams<{ code: string }>();
+  const { loadError } = useRoomRejoin(code);
   const {
     room,
     isHost,
@@ -117,6 +120,10 @@ export default function Game() {
       alert(e instanceof Error ? e.message : "No se pudo marcar el reto");
     }
   };
+
+  if (loadError) {
+    return <RoomLoadError error={loadError} code={code} />;
+  }
 
   if (!room) {
     return (

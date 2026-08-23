@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useSocket } from "../context/SocketContext";
+import { savePlayerSession, useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
 import type { Gender } from "@shared/types";
 import GenderPicker from "../components/GenderPicker";
@@ -26,9 +26,18 @@ export default function Join() {
     if (!code.trim() || !name.trim() || !gender) return;
     sounds.click();
     setLoading(true);
+    const roomCode = code.trim().toUpperCase();
+    savePlayerSession({
+      code: roomCode,
+      name: name.trim(),
+      drunkLevel,
+      drinksAlcohol,
+      gender,
+      isHost: false,
+    });
     try {
       const room = await joinRoom(
-        code.trim().toUpperCase(),
+        roomCode,
         name.trim(),
         drunkLevel,
         drinksAlcohol,

@@ -4,7 +4,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
-import { RoomManager } from "./roomManager.js";
+import { RoomManager, type JoinErrorCode } from "./roomManager.js";
 import type { GameSettings, Gender } from "../../shared/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +25,14 @@ function emitRoom(code: string) {
   if (room) io.to(code).emit("room:update", room);
 }
 
+const JOIN_ERROR_MESSAGES: Record<JoinErrorCode, string> = {
+  ROOM_EXPIRED: "La sala expiró. Crea otra.",
+  GAME_IN_PROGRESS:
+    "La partida ya empezó. Entra de nuevo con el mismo nombre.",
+  ROOM_FULL: "La sala está llena.",
+  NOT_HOST: "No se pudo recuperar el host de esta sala.",
+};
+
 function resolveRoomAssociation(
   socket: import("socket.io").Socket,
   currentCode: string | null,
@@ -39,11 +47,11 @@ function resolveRoomAssociation(
     return existing.code;
   }
 
-  const room = rooms.rejoinHost(explicitCode, socket.id);
-  if (!room) return null;
+  const result = rooms.rejoinHost(explicitCode, socket.id);
+  if (!result.ok) return null;
 
-  socket.join(room.code);
-  return room.code;
+  socket.join(result.room.code);
+  return result.room.code;
 }
 
 function playerMarkError(code: string | null, playerId: string): string {
@@ -92,7 +100,7 @@ io.on("connection", (socket) => {
       },
       callback
     ) => {
-      const room = rooms.joinRoom(
+      const result = rooms.joinRoom(
         data.code,
         socket.id,
         data.name,
@@ -100,27 +108,47 @@ io.on("connection", (socket) => {
         data.drinksAlcohol,
         data.gender
       );
-      if (!room) {
-        callback({ ok: false, error: "No se puede unir a la sala" });
+      if (!result.ok) {
+        callback({
+          ok: false,
+          error: JOIN_ERROR_MESSAGES[result.errorCode],
+          errorCode: result.errorCode,
+        });
         return;
       }
-      currentCode = room.code;
-      socket.join(room.code);
-      emitRoom(room.code);
-      callback({ ok: true, room });
+      currentCode = result.room.code;
+      socket.join(result.room.code);
+      emitRoom(result.room.code);
+      callback({ ok: true, room: result.room });
     }
   );
 
-  socket.on("room:rejoinHost", (data: { code: string }, callback) => {
-    const room = rooms.rejoinHost(data.code, socket.id);
-    if (!room) {
-      callback({ ok: false, error: "Sala no encontrada o expiró" });
+  socket.on(
+    "room:rejoinHost",
+    (data: { code: string; name?: string }, callback) => {
+      const result = rooms.rejoinHost(data.code, socket.id, data.name);
+      if (!result.ok) {
+        callback({
+          ok: false,
+          error: JOIN_ERROR_MESSAGES[result.errorCode],
+          errorCode: result.errorCode,
+        });
+        return;
+      }
+      currentCode = result.room.code;
+      socket.join(result.room.code);
+      emitRoom(result.room.code);
+      callback({ ok: true, room: result.room });
+    }
+  );
+
+  socket.on("room:lookup", (data: { code?: string }, callback) => {
+    if (!data?.code) {
+      callback({ ok: true, exists: false });
       return;
     }
-    currentCode = room.code;
-    socket.join(room.code);
-    emitRoom(room.code);
-    callback({ ok: true, room });
+    const room = rooms.getRoom(data.code);
+    callback({ ok: true, exists: Boolean(room) });
   });
 
   socket.on(

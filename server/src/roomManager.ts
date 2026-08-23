@@ -192,15 +192,16 @@ export class RoomManager {
     drunkLevel: number,
     drinksAlcohol: boolean,
     gender?: Gender
-  ): RoomState | null {
+  ): JoinRoomResult {
     const room = this.getRoom(code);
-    if (!room) return null;
+    if (!room) return { ok: false, errorCode: "ROOM_EXPIRED" };
     const resolvedGender = normalizeGender(gender);
+    const trimmedName = name.trim();
 
     const existing = room.players.find((p) => p.id === playerId);
     if (existing) {
       existing.connected = true;
-      existing.name = name;
+      if (trimmedName) existing.name = trimmedName;
       existing.gender = resolvedGender;
       existing.drinksAlcohol = drinksAlcohol;
       if (room.phase === "setup" || room.phase === "lobby") {
@@ -210,12 +211,15 @@ export class RoomManager {
       if (room.phase === "drunk_check" && room.drunkCheckSubmitted[playerId] === undefined) {
         room.drunkCheckSubmitted[playerId] = false;
       }
-      return room;
+      return { ok: true, room };
     }
 
-    const existingByName = room.players.find(
-      (p) => p.name.toLowerCase() === name.trim().toLowerCase()
-    );
+    const existingByName =
+      trimmedName.length > 0
+        ? room.players.find(
+            (p) => p.name.toLowerCase() === trimmedName.toLowerCase()
+          )
+        : undefined;
     if (existingByName) {
       const oldId = existingByName.id;
       if (existingByName.isHost) {
@@ -233,16 +237,20 @@ export class RoomManager {
       if (room.phase === "drunk_check" && room.drunkCheckSubmitted[playerId] === undefined) {
         room.drunkCheckSubmitted[playerId] = false;
       }
-      return room;
+      return { ok: true, room };
     }
 
-    if (room.phase !== "lobby") return null;
+    if (room.phase !== "lobby") {
+      return { ok: false, errorCode: "GAME_IN_PROGRESS" };
+    }
 
-    if (room.players.filter((p) => p.connected).length >= 20) return null;
+    if (room.players.filter((p) => p.connected).length >= 20) {
+      return { ok: false, errorCode: "ROOM_FULL" };
+    }
 
     const player: Player = {
       id: playerId,
-      name,
+      name: trimmedName || name,
       gender: resolvedGender,
       drunkLevel: Math.min(10, Math.max(1, drunkLevel)),
       drinksAlcohol,
@@ -254,18 +262,30 @@ export class RoomManager {
 
     room.players.push(player);
     room.drunkCheckSubmitted[playerId] = false;
-    return room;
+    return { ok: true, room };
   }
 
-  rejoinHost(code: string, socketId: string): RoomState | null {
+  rejoinHost(
+    code: string,
+    socketId: string,
+    name?: string
+  ): JoinRoomResult {
     const room = this.getRoom(code);
-    if (!room) return null;
+    if (!room) return { ok: false, errorCode: "ROOM_EXPIRED" };
 
     const host = room.players.find((p) => p.isHost);
-    if (!host) return null;
+    if (!host) return { ok: false, errorCode: "ROOM_EXPIRED" };
 
-    // Un invitado no debe robar la identidad del host si este sigue conectado.
-    if (host.connected && host.id !== socketId) return null;
+    const nameMatches =
+      !!name &&
+      name.trim().length > 0 &&
+      host.name.toLowerCase() === name.trim().toLowerCase();
+
+    // Un invitado no debe robar al host si sigue conectado; el F5 del host
+    // sí: el socket.id cambia y el nombre de sesión coincide.
+    if (host.connected && host.id !== socketId && !nameMatches) {
+      return { ok: false, errorCode: "NOT_HOST" };
+    }
 
     const oldId = host.id;
     host.id = socketId;
@@ -276,7 +296,7 @@ export class RoomManager {
       room.drunkCheckSubmitted[socketId] = false;
     }
 
-    return room;
+    return { ok: true, room };
   }
 
   setHostSettings(code: string, hostId: string, settings: GameSettings): RoomState | null {
@@ -759,6 +779,16 @@ export class RoomManager {
     }
   }
 }
+
+export type JoinErrorCode =
+  | "ROOM_EXPIRED"
+  | "GAME_IN_PROGRESS"
+  | "ROOM_FULL"
+  | "NOT_HOST";
+
+export type JoinRoomResult =
+  | { ok: true; room: RoomState }
+  | { ok: false; errorCode: JoinErrorCode };
 
 export interface BeginSpinResult {
   room: RoomState | null;

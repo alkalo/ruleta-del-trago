@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useSocket } from "../context/SocketContext";
+import { savePlayerSession, useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
 import type {
   Vibe,
@@ -29,7 +29,8 @@ export default function HostSetup() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const code = params.get("code") ?? "";
-  const { setSettings, updateHostProfile, room } = useSocket();
+  const { setSettings, updateHostProfile, room, rejoinByCode, socket } =
+    useSocket();
 
   const [step, setStep] = useState(0);
   const [vibes, setVibes] = useState<Vibe[]>([
@@ -50,6 +51,14 @@ export default function HostSetup() {
   const [hostDrunk, setHostDrunk] = useState(5);
   const [hostDrinks, setHostDrinks] = useState(true);
   const [hostGender, setHostGender] = useState<Gender | null>(null);
+
+  useEffect(() => {
+    const roomCode = (code || room?.code || "").trim().toUpperCase();
+    if (!roomCode || !socket || room?.code === roomCode) return;
+    void rejoinByCode(roomCode).catch(() => {
+      /* setSettings mostrará el error si la sala ya no existe */
+    });
+  }, [code, room?.code, socket, rejoinByCode]);
 
   const toggle = <T extends string>(list: T[], item: T, set: (v: T[]) => void) => {
     sounds.click();
@@ -90,6 +99,14 @@ export default function HostSetup() {
       return;
     }
     try {
+      savePlayerSession({
+        code: roomCode,
+        name: hostName.trim() || "Host",
+        drunkLevel: hostDrunk,
+        drinksAlcohol: hostDrinks,
+        gender: hostGender,
+        isHost: true,
+      });
       updateHostProfile({
         name: hostName.trim() || undefined,
         drunkLevel: hostDrunk,
