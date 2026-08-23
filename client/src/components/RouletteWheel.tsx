@@ -130,7 +130,16 @@ export default function RouletteWheel({
         raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
-      return () => cancelAnimationFrame(raf);
+      const stopAt = window.setTimeout(() => {
+        cancelAnimationFrame(raf);
+        sounds.stop();
+        completeRef.current?.();
+      }, 3500);
+      return () => {
+        cancelAnimationFrame(raf);
+        window.clearTimeout(stopAt);
+        sounds.stop();
+      };
     }
 
     const count = names.length;

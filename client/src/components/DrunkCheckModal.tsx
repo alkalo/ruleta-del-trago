@@ -6,7 +6,6 @@ interface Props {
   players: Player[];
   playerId: string;
   clientKey?: string;
-  isHost?: boolean;
   drunkCheckSubmitted: Record<string, boolean>;
   onSubmit: (level: number) => Promise<void>;
   roundLabel?: string;
@@ -27,15 +26,13 @@ export default function DrunkCheckModal({
   players,
   playerId,
   clientKey,
-  isHost,
   drunkCheckSubmitted,
   onSubmit,
   roundLabel,
 }: Props) {
   const me =
     players.find((p) => p.id === playerId) ??
-    players.find((p) => clientKey && p.clientKey === clientKey) ??
-    (isHost ? players.find((p) => p.isHost) : undefined);
+    players.find((p) => clientKey && p.clientKey === clientKey);
 
   const [level, setLevel] = useState(me?.drunkLevel ?? 5);
   const [submitting, setSubmitting] = useState(false);

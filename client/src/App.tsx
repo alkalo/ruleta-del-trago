@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { SocketProvider } from "./context/SocketContext";
 import BirthdayDecor, { BirthdayBanner } from "./components/BirthdayDecor";
 import Home from "./pages/Home";
@@ -19,6 +19,7 @@ export default function App() {
           <Route path="/join" element={<Join />} />
           <Route path="/lobby/:code" element={<Lobby />} />
           <Route path="/game/:code" element={<Game />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </SocketProvider>

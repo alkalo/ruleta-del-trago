@@ -382,12 +382,16 @@ function resolveSelf(
     if (byKey) return byKey;
   }
   const session = readSession();
-  if (session?.isHost === true) {
-    return room.players.find((p) => p.isHost);
-  }
   if (session?.name) {
     const n = session.name.trim().toLowerCase();
-    return room.players.find((p) => p.name.toLowerCase() === n);
+    const matches = room.players.filter(
+      (p) => p.name.toLowerCase() === n
+    );
+    if (matches.length === 1) {
+      const m = matches[0];
+      if (key && m.clientKey && m.clientKey !== key) return undefined;
+      return m;
+    }
   }
   return undefined;
 }
@@ -596,9 +600,9 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const completeSpin = useCallback(async () => {
     if (!socket) throw new Error("Sin conexión al servidor");
     const res = await playAck(socket, "host:spinComplete", sessionPayload());
+    if (res.room) setRoom(res.room);
     if (res.ok && res.spinResult) {
       setLastSpinResult(res.spinResult);
-      if (res.room) setRoom(res.room);
       return res.spinResult;
     }
     throw new Error(res.error ?? "Error al completar giro");

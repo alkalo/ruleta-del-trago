@@ -316,13 +316,6 @@ export class RoomManager {
       if (existingByName.connected && existingByName.id !== playerId && !samePerson) {
         return { ok: false, errorCode: "NAME_TAKEN" };
       }
-      if (
-        existingByName.clientKey &&
-        clientKey &&
-        existingByName.clientKey !== clientKey
-      ) {
-        return { ok: false, errorCode: "NAME_TAKEN" };
-      }
       return claim(existingByName);
     }
 
@@ -375,17 +368,10 @@ export class RoomManager {
       name.trim().length > 0 &&
       host.name.toLowerCase() === name.trim().toLowerCase();
 
-    if (clientKey && host.clientKey && host.clientKey !== clientKey) {
+    if (host.id !== socketId && !keyMatches && !nameMatches) {
       return { ok: false, errorCode: "NOT_HOST" };
     }
-
-    // F5 del host: el socket.id cambia y el viejo puede seguir "connected".
-    if (
-      host.connected &&
-      host.id !== socketId &&
-      !keyMatches &&
-      !nameMatches
-    ) {
+    if (clientKey && host.clientKey && host.clientKey !== clientKey && !nameMatches) {
       return { ok: false, errorCode: "NOT_HOST" };
     }
 
@@ -450,7 +436,8 @@ export class RoomManager {
     }
     if (!player && identity?.name?.trim()) {
       const n = identity.name.trim().toLowerCase();
-      player = room.players.find((p) => p.name.toLowerCase() === n);
+      const matches = room.players.filter((p) => p.name.toLowerCase() === n);
+      if (matches.length === 1) player = matches[0];
     }
     if (!player) return null;
 
@@ -523,15 +510,22 @@ export class RoomManager {
       return { room };
     }
 
-    room.phase = "spinning";
     const active = room.players.filter((p) => p.connected);
-    room.spinPlayerIds = active.map((p) => p.id);
+    if (active.length === 0) {
+      return { room: null, error: "No hay jugadores conectados para girar." };
+    }
     const pickable = active.filter((p) => this.pickChallenge(room, [p]));
     const source = pickable.length > 0 ? pickable : active;
     const candidates = source.filter((p) => p.id !== room.lastSelectedId);
     const pool = candidates.length > 0 ? candidates : source;
     const winner = pool[Math.floor(Math.random() * pool.length)];
-    room.spinWinnerId = winner?.id ?? null;
+    if (!winner) {
+      return { room: null, error: "No hay jugadores para girar." };
+    }
+
+    room.phase = "spinning";
+    room.spinPlayerIds = active.map((p) => p.id);
+    room.spinWinnerId = winner.id;
     room.spinTurns = 6;
     return { room };
   }
@@ -546,25 +540,22 @@ export class RoomManager {
     }
 
     room.round++;
-    const active = room.players.filter((p) => p.connected);
-    if (active.length === 0) {
+    const winner = room.players.find((p) => p.id === room.spinWinnerId);
+    if (!winner) {
       room.round--;
-      return { ok: false, error: "No hay jugadores conectados.", room };
+      room.phase = "challenge";
+      room.activeSpin = null;
+      return {
+        ok: false,
+        error: "No se encontró al elegido. Gira otra vez.",
+        room,
+      };
     }
 
+    const active = room.players.filter((p) => p.connected);
     const mode = MODES[Math.floor(Math.random() * MODES.length)];
     room.currentMode = mode;
-
-    const winner =
-      active.find((p) => p.id === room.spinWinnerId) ??
-      active.find((p) => p.id !== room.lastSelectedId) ??
-      active[0];
     const targets = [winner];
-    room.lastSelectedId = winner.id;
-
-    for (const t of targets) {
-      t.stats.timesSelected++;
-    }
 
     const challenge = this.pickChallenge(room, targets);
     if (!challenge) {
@@ -573,6 +564,11 @@ export class RoomManager {
       room.activeSpin = null;
       this.addAlert(room, "warning", NO_MATCHING_CHALLENGE);
       return { ok: false, error: NO_MATCHING_CHALLENGE, room };
+    }
+
+    room.lastSelectedId = winner.id;
+    for (const t of targets) {
+      t.stats.timesSelected++;
     }
 
     room.currentChallenge = challenge;
@@ -724,12 +720,15 @@ export class RoomManager {
       if (room.activeSpin?.targets.includes(playerId)) return playerId;
     }
     const byName = identity?.name?.trim()
-      ? room.players.find(
+      ? room.players.filter(
           (p) => p.name.toLowerCase() === identity.name!.trim().toLowerCase()
         )
-      : undefined;
-    if (byName && room.activeSpin?.targets.includes(byName.id)) {
-      return byName.id;
+      : [];
+    if (
+      byName.length === 1 &&
+      room.activeSpin?.targets.includes(byName[0].id)
+    ) {
+      return byName[0].id;
     }
     return null;
   }

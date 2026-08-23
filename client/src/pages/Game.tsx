@@ -11,6 +11,7 @@ import VictoryScreen from "../components/VictoryScreen";
 import RoomLoadError from "../components/RoomLoadError";
 import { useRoomRejoin } from "../hooks/useRoomRejoin";
 import type { GameMode } from "@shared/types";
+import { personalizeText } from "@shared/gameLogic";
 import { BIRTHDAY_NAME, isBirthdayName } from "../constants/birthday";
 
 export default function Game() {
@@ -35,7 +36,6 @@ export default function Game() {
   } = useSocket();
 
   const [localSpinning, setLocalSpinning] = useState(false);
-  const [iStartedSpin, setIStartedSpin] = useState(false);
   const completeOnceRef = useRef(false);
 
   const allPlayers = room?.players ?? [];
@@ -46,9 +46,9 @@ export default function Game() {
           room.players.some((p) => p.id === id)
         )
       : players.map((p) => p.id);
-  const names = wheelIds
-    .map((id) => allPlayers.find((p) => p.id === id)?.name)
-    .filter((n): n is string => Boolean(n));
+  const names = wheelIds.map(
+    (id) => allPlayers.find((p) => p.id === id)?.name?.trim() || "Jugador"
+  );
   const highlightId =
     room?.spinWinnerId ??
     room?.activeSpin?.targets?.[0] ??
@@ -107,7 +107,6 @@ export default function Game() {
   useEffect(() => {
     if (room?.phase !== "spinning") {
       setLocalSpinning(false);
-      setIStartedSpin(false);
       completeOnceRef.current = false;
     }
   }, [room?.phase]);
@@ -128,27 +127,22 @@ export default function Game() {
     if (!canSpin) return;
     sounds.click();
     completeOnceRef.current = false;
-    setIStartedSpin(true);
 
     try {
       const updatedRoom = await beginSpin();
       if (updatedRoom?.phase === "drunk_check") {
-        setIStartedSpin(false);
         setLocalSpinning(false);
         return;
       }
 
-      const wheelNames =
+      const ids =
         updatedRoom.spinPlayerIds.length > 0
-          ? updatedRoom.spinPlayerIds
-              .map((id) => updatedRoom.players.find((p) => p.id === id)?.name)
-              .filter((n): n is string => Boolean(n))
-          : updatedRoom.players
-              .filter((p) => p.connected)
-              .map((p) => p.name);
+          ? updatedRoom.spinPlayerIds.filter((id) =>
+              updatedRoom.players.some((p) => p.id === id)
+            )
+          : updatedRoom.players.filter((p) => p.connected).map((p) => p.id);
 
-      if (wheelNames.length === 0) {
-        setIStartedSpin(true);
+      if (ids.length === 0) {
         setLocalSpinning(false);
         completeOnceRef.current = true;
         try {
@@ -156,16 +150,12 @@ export default function Game() {
         } catch (e) {
           completeOnceRef.current = false;
           throw e;
-        } finally {
-          setIStartedSpin(false);
         }
         return;
       }
 
-      setIStartedSpin(true);
       setLocalSpinning(true);
     } catch (e) {
-      setIStartedSpin(false);
       setLocalSpinning(false);
       alert(e instanceof Error ? e.message : "No se pudo girar");
     }
@@ -181,10 +171,8 @@ export default function Game() {
     } catch (e) {
       completeOnceRef.current = false;
       alert(e instanceof Error ? e.message : "Error al completar giro");
-    } finally {
-      setIStartedSpin(false);
     }
-  }, [iStartedSpin, isHost, completeSpin]);
+  }, [isHost, completeSpin]);
 
   const handleDrunkSubmit = async (level: number) => {
     try {
@@ -198,8 +186,12 @@ export default function Game() {
     targetId: string,
     action: "drank" | "completed" | "skipped"
   ) => {
-    const asHost = isHost && playerId !== targetId;
-    if (playerId !== targetId && !asHost) return;
+    const target = allPlayers.find((p) => p.id === targetId);
+    const selfIsTarget =
+      playerId === targetId ||
+      (!!clientKey && !!target?.clientKey && target.clientKey === clientKey);
+    const asHost = isHost && !selfIsTarget;
+    if (!selfIsTarget && !asHost) return;
     try {
       if (asHost) {
         if (action === "drank") await hostMarkDrank(targetId);
@@ -268,7 +260,6 @@ export default function Game() {
           players={allPlayers}
           playerId={playerId}
           clientKey={clientKey}
-          isHost={isHost}
           drunkCheckSubmitted={room.drunkCheckSubmitted}
           onSubmit={handleDrunkSubmit}
           roundLabel={
@@ -303,8 +294,11 @@ export default function Game() {
                   <p className="muted" style={{ textAlign: "center" }}>
                     Esperando que marquen:{" "}
                     {pendingTargets
-                      .map((tid) => allPlayers.find((p) => p.id === tid)?.name)
-                      .filter(Boolean)
+                      .map(
+                        (tid) =>
+                          allPlayers.find((p) => p.id === tid)?.name?.trim() ||
+                          "Jugador"
+                      )
                       .join(", ")}
                   </p>
                 )
@@ -333,8 +327,10 @@ export default function Game() {
                 const player = allPlayers.find((p) => p.id === tid);
                 if (!player) return null;
                 const acted = resolvedTargets.includes(tid);
-                const hostCanResolve =
-                  isHost && playerId !== tid && !acted;
+                const isTarget =
+                  playerId === tid ||
+                  (!!clientKey && player.clientKey === clientKey);
+                const hostCanResolve = isHost && !isTarget && !acted;
                 return (
                   <div key={tid}>
                     <h2 style={{ color: "var(--yellow)" }}>
@@ -352,18 +348,27 @@ export default function Game() {
                     <ChallengeCard
                       challenge={challenge}
                       mode={mode}
-                      displayText={spin?.displayTexts?.[tid] ?? challenge.text}
+                      displayText={
+                        spin?.displayTexts?.[tid] ??
+                        personalizeText(
+                          challenge.text,
+                          player.name,
+                          players
+                            .filter((p) => p.id !== tid)
+                            .map((p) => p.name)
+                        )
+                      }
                       drinkAmount={spin?.drinkAmounts?.[tid]}
                       skipDrinkAmount={spin?.skipDrinkAmounts?.[tid]}
                       soberAlternative={spin?.soberAlternatives?.[tid]}
                       drinksAlcohol={player.drinksAlcohol}
-                      isTarget={playerId === tid}
+                      isTarget={isTarget}
                       onDrank={() => handleAction(tid, "drank")}
                       onCompleted={() => handleAction(tid, "completed")}
                       onSkipped={() => handleAction(tid, "skipped")}
                       acted={acted}
                     />
-                    {hostCanResolve && !player.connected && (
+                    {hostCanResolve && (
                       <div
                         style={{
                           display: "flex",
@@ -373,7 +378,9 @@ export default function Game() {
                         }}
                       >
                         <p className="muted" style={{ textAlign: "center" }}>
-                          Sin conexión. El host puede cerrar su ronda:
+                          {player.connected
+                            ? "Si no pueden marcar en su móvil, el host cierra la ronda:"
+                            : "Sin conexión. El host puede cerrar su ronda:"}
                         </p>
                         <button
                           className="btn btn-primary"

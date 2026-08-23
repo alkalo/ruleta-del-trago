@@ -415,7 +415,7 @@ io.on("connection", (socket) => {
       const result = rooms.completeSpin(currentCode, socket.id);
       if (!result.ok) {
         emitRoom(currentCode);
-        callback({ ok: false, error: result.error });
+        callback({ ok: false, error: result.error, room: result.room });
         return;
       }
       const outcome = result.outcome;
@@ -467,6 +467,11 @@ io.on("connection", (socket) => {
   socket.on("game:finishDrunkCheck", (callback) => {
     if (!currentCode) {
       callback({ ok: false });
+      return;
+    }
+    const current = rooms.getRoom(currentCode);
+    if (!current || current.hostId !== socket.id) {
+      safeAck(callback, { ok: false, error: "Solo el host puede saltar la pausa." });
       return;
     }
     const room = rooms.finishDrunkCheck(currentCode);
