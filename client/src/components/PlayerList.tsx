@@ -22,7 +22,7 @@ export default function PlayerList({ players, title }: Props) {
             {isBirthdayName(p.name) && (
               <span className="badge badge-birthday">🎂 cumple</span>
             )}
-            {p.gender && (
+            {p.gender && GENDER_LABELS[p.gender] && (
               <span className="muted" style={{ marginLeft: 6, fontSize: "0.75rem" }}>
                 {GENDER_LABELS[p.gender]}
               </span>

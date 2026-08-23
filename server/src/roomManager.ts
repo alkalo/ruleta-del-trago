@@ -56,19 +56,65 @@ function generateCode(): string {
   return code;
 }
 
+/** La confirmación de nivel vive en clientKey, no en socket.id (cambia al remapear). */
+function drunkCheckKey(player: Player): string {
+  return player.clientKey || player.id;
+}
+
+function hasSubmittedDrunkCheck(room: RoomState, player: Player): boolean {
+  return (
+    room.drunkCheckSubmitted[drunkCheckKey(player)] === true ||
+    room.drunkCheckSubmitted[player.id] === true
+  );
+}
+
+function writeDrunkCheck(
+  room: RoomState,
+  player: Player,
+  value: boolean
+): void {
+  room.drunkCheckSubmitted[player.id] = value;
+  if (player.clientKey) room.drunkCheckSubmitted[player.clientKey] = value;
+}
+
+function ensureDrunkCheckSlot(room: RoomState, player: Player): void {
+  if (room.phase !== "drunk_check") return;
+  if (!hasSubmittedDrunkCheck(room, player)) {
+    writeDrunkCheck(room, player, false);
+  }
+}
+
 function resetDrunkCheckSubmissions(room: RoomState): void {
   room.drunkCheckSubmitted = {};
   for (const p of room.players.filter((pl) => pl.connected)) {
-    room.drunkCheckSubmitted[p.id] = false;
+    writeDrunkCheck(room, p, false);
   }
 }
 
 function allDrunkCheckSubmitted(room: RoomState): boolean {
   const active = room.players.filter((p) => p.connected);
   return (
-    active.length > 0 &&
-    active.every((p) => room.drunkCheckSubmitted[p.id] === true)
+    active.length > 0 && active.every((p) => hasSubmittedDrunkCheck(room, p))
   );
+}
+
+/** Si el último pendiente se desconecta, no dejes la pausa colgada. */
+function tryAdvanceDrunkCheck(room: RoomState, addInfoAlert: (message: string) => void): void {
+  if (room.phase !== "drunk_check") return;
+  if (!allDrunkCheckSubmitted(room)) return;
+
+  room.lastDrunkCheckRound = room.round;
+  room.phase = "challenge";
+
+  const active = room.players.filter((p) => p.connected);
+  const allSweet =
+    active.length > 0 && active.every((p) => isInSweetSpot(p.drunkLevel));
+  if (allSweet && room.round > 0) {
+    addInfoAlert(
+      "🎉 ¡NIVEL PERFECTO! Todos entre 7.5 y 8.5. Sois unos profesionales."
+    );
+    room.phase = "ended";
+  }
 }
 
 function remapIdList(ids: string[], oldId: string, newId: string): string[] {
@@ -109,8 +155,6 @@ function remapPlayerId(room: RoomState, oldId: string, newId: string): void {
     remapRecordKey(room.activeSpin.displayTexts, oldId, newId);
   }
 
-  remapRecordKey(room.drunkCheckSubmitted, oldId, newId);
-
   for (const alert of room.sessionAlerts) {
     if (alert.playerId === oldId) alert.playerId = newId;
   }
@@ -140,7 +184,7 @@ function clearSpinIfResolved(room: RoomState): void {
 export class RoomManager {
   private rooms = new Map<string, RoomState>();
 
-  createRoom(hostId: string): RoomState {
+  createRoom(hostId: string, clientKey?: string): RoomState {
     let code = generateCode();
     while (this.rooms.has(code)) code = generateCode();
 
@@ -148,6 +192,7 @@ export class RoomManager {
       id: hostId,
       name: "Host",
       gender: "otro",
+      clientKey: clientKey || uuidv4(),
       drunkLevel: 5,
       drinksAlcohol: true,
       isHost: true,
@@ -174,7 +219,7 @@ export class RoomManager {
       activeSpin: null,
       resolvedTargets: [],
       lastDrunkCheckRound: -1,
-      drunkCheckSubmitted: { [hostId]: false },
+      drunkCheckSubmitted: { [drunkCheckKey(host)]: false },
     };
 
     this.rooms.set(code, room);
@@ -182,7 +227,34 @@ export class RoomManager {
   }
 
   getRoom(code: string): RoomState | undefined {
-    return this.rooms.get(code.toUpperCase());
+    if (!code) return undefined;
+    return this.rooms.get(code.trim().toUpperCase());
+  }
+
+  /** Reengancha un socket ya conocido (misma pestaña) sin crear jugador nuevo. */
+  attachSocket(
+    code: string,
+    socketId: string,
+    identity?: { clientKey?: string; name?: string }
+  ): RoomState | null {
+    const room = this.getRoom(code);
+    if (!room) return null;
+    if (room.players.some((p) => p.id === socketId)) return room;
+
+    const byKey = identity?.clientKey
+      ? room.players.find(
+          (p) => p.clientKey && p.clientKey === identity.clientKey
+        )
+      : undefined;
+    if (!byKey) return null;
+
+    const oldId = byKey.id;
+    if (byKey.isHost) room.hostId = socketId;
+    byKey.id = socketId;
+    byKey.connected = true;
+    remapPlayerId(room, oldId, socketId);
+    ensureDrunkCheckSlot(room, byKey);
+    return room;
   }
 
   joinRoom(
@@ -191,27 +263,40 @@ export class RoomManager {
     name: string,
     drunkLevel: number,
     drinksAlcohol: boolean,
-    gender?: Gender
+    gender?: Gender,
+    clientKey?: string
   ): JoinRoomResult {
     const room = this.getRoom(code);
     if (!room) return { ok: false, errorCode: "ROOM_EXPIRED" };
     const resolvedGender = normalizeGender(gender);
     const trimmedName = name.trim();
 
-    const existing = room.players.find((p) => p.id === playerId);
-    if (existing) {
-      existing.connected = true;
-      if (trimmedName) existing.name = trimmedName;
-      existing.gender = resolvedGender;
-      existing.drinksAlcohol = drinksAlcohol;
+    const claim = (player: Player): JoinRoomResult => {
+      const oldId = player.id;
+      if (player.isHost) room.hostId = playerId;
+      player.id = playerId;
+      player.connected = true;
+      if (clientKey) player.clientKey = clientKey;
+      if (trimmedName) player.name = trimmedName;
+      player.gender = resolvedGender;
+      player.drinksAlcohol = drinksAlcohol;
       if (room.phase === "setup" || room.phase === "lobby") {
-        existing.drunkLevel = Math.min(10, Math.max(1, drunkLevel));
-        existing.isFino = isFino(existing.drunkLevel);
+        player.drunkLevel = Math.min(10, Math.max(1, drunkLevel));
+        player.isFino = isFino(player.drunkLevel);
       }
-      if (room.phase === "drunk_check" && room.drunkCheckSubmitted[playerId] === undefined) {
-        room.drunkCheckSubmitted[playerId] = false;
-      }
+      remapPlayerId(room, oldId, playerId);
+      ensureDrunkCheckSlot(room, player);
       return { ok: true, room };
+    };
+
+    const existing = room.players.find((p) => p.id === playerId);
+    if (existing) return claim(existing);
+
+    if (clientKey) {
+      const existingByKey = room.players.find(
+        (p) => p.clientKey && p.clientKey === clientKey
+      );
+      if (existingByKey) return claim(existingByKey);
     }
 
     const existingByName =
@@ -221,23 +306,25 @@ export class RoomManager {
           )
         : undefined;
     if (existingByName) {
-      const oldId = existingByName.id;
-      if (existingByName.isHost) {
-        room.hostId = playerId;
+      const samePerson =
+        !!existingByName.clientKey &&
+        !!clientKey &&
+        existingByName.clientKey === clientKey;
+      if (existingByName.connected && existingByName.id !== playerId && !samePerson) {
+        return { ok: false, errorCode: "NAME_TAKEN" };
       }
-      existingByName.id = playerId;
-      existingByName.connected = true;
-      existingByName.gender = resolvedGender;
-      existingByName.drinksAlcohol = drinksAlcohol;
-      if (room.phase === "setup" || room.phase === "lobby") {
-        existingByName.drunkLevel = Math.min(10, Math.max(1, drunkLevel));
-        existingByName.isFino = isFino(existingByName.drunkLevel);
+      if (
+        existingByName.clientKey &&
+        clientKey &&
+        existingByName.clientKey !== clientKey
+      ) {
+        return { ok: false, errorCode: "NAME_TAKEN" };
       }
-      remapPlayerId(room, oldId, playerId);
-      if (room.phase === "drunk_check" && room.drunkCheckSubmitted[playerId] === undefined) {
-        room.drunkCheckSubmitted[playerId] = false;
-      }
-      return { ok: true, room };
+      return claim(existingByName);
+    }
+
+    if (room.phase === "setup") {
+      return { ok: false, errorCode: "SETUP_IN_PROGRESS" };
     }
 
     if (room.phase !== "lobby") {
@@ -252,6 +339,7 @@ export class RoomManager {
       id: playerId,
       name: trimmedName || name,
       gender: resolvedGender,
+      clientKey,
       drunkLevel: Math.min(10, Math.max(1, drunkLevel)),
       drinksAlcohol,
       isHost: false,
@@ -261,14 +349,15 @@ export class RoomManager {
     };
 
     room.players.push(player);
-    room.drunkCheckSubmitted[playerId] = false;
+    writeDrunkCheck(room, player, false);
     return { ok: true, room };
   }
 
   rejoinHost(
     code: string,
     socketId: string,
-    name?: string
+    name?: string,
+    clientKey?: string
   ): JoinRoomResult {
     const room = this.getRoom(code);
     if (!room) return { ok: false, errorCode: "ROOM_EXPIRED" };
@@ -276,25 +365,35 @@ export class RoomManager {
     const host = room.players.find((p) => p.isHost);
     if (!host) return { ok: false, errorCode: "ROOM_EXPIRED" };
 
+    const keyMatches =
+      !!clientKey && !!host.clientKey && host.clientKey === clientKey;
     const nameMatches =
       !!name &&
       name.trim().length > 0 &&
       host.name.toLowerCase() === name.trim().toLowerCase();
 
-    // Un invitado no debe robar al host si sigue conectado; el F5 del host
-    // sí: el socket.id cambia y el nombre de sesión coincide.
-    if (host.connected && host.id !== socketId && !nameMatches) {
+    if (clientKey && host.clientKey && host.clientKey !== clientKey) {
+      return { ok: false, errorCode: "NOT_HOST" };
+    }
+
+    // F5 del host: el socket.id cambia y el viejo puede seguir "connected".
+    if (
+      host.connected &&
+      host.id !== socketId &&
+      !keyMatches &&
+      !nameMatches
+    ) {
       return { ok: false, errorCode: "NOT_HOST" };
     }
 
     const oldId = host.id;
     host.id = socketId;
     host.connected = true;
+    if (clientKey) host.clientKey = clientKey;
+    if (name?.trim()) host.name = name.trim();
     room.hostId = socketId;
     remapPlayerId(room, oldId, socketId);
-    if (room.drunkCheckSubmitted[socketId] === undefined) {
-      room.drunkCheckSubmitted[socketId] = false;
-    }
+    ensureDrunkCheckSlot(room, host);
 
     return { ok: true, room };
   }
@@ -307,32 +406,63 @@ export class RoomManager {
     return room;
   }
 
-  startGame(code: string, hostId: string): RoomState | null {
+  startGame(
+    code: string,
+    hostId: string
+  ): { room: RoomState | null; error?: string } {
     const room = this.getRoom(code);
-    if (!room || room.hostId !== hostId || !room.settings) return null;
-    if (room.players.filter((p) => p.connected).length < 2) return null;
+    if (!room) return { room: null, error: "Sala no encontrada. Crea otra." };
+    if (room.hostId !== hostId) {
+      return { room: null, error: "No eres el host. Recarga la página." };
+    }
+    if (!room.settings) {
+      return { room: null, error: "Falta la configuración de la sala." };
+    }
+    if (room.players.filter((p) => p.connected).length < 2) {
+      return {
+        room: null,
+        error: "Necesitas al menos 2 jugadores conectados.",
+      };
+    }
 
     room.phase = "drunk_check";
     room.round = 0;
     room.drunkCheckRound = 1;
     resetDrunkCheckSubmissions(room);
-    return room;
+    return { room };
   }
 
   submitDrunkLevel(
     code: string,
     playerId: string,
-    level: number
+    level: number,
+    identity?: { name?: string; clientKey?: string }
   ): RoomState | null {
     const room = this.getRoom(code);
     if (!room || room.phase !== "drunk_check") return null;
 
-    const player = room.players.find((p) => p.id === playerId && p.connected);
+    let player = room.players.find((p) => p.id === playerId);
+    if (!player && identity?.clientKey) {
+      player = room.players.find((p) => p.clientKey === identity.clientKey);
+    }
+    if (!player && identity?.name?.trim()) {
+      const n = identity.name.trim().toLowerCase();
+      player = room.players.find((p) => p.name.toLowerCase() === n);
+    }
     if (!player) return null;
+
+    if (player.id !== playerId) {
+      const oldId = player.id;
+      player.id = playerId;
+      if (player.isHost) room.hostId = playerId;
+      remapPlayerId(room, oldId, playerId);
+    }
+    player.connected = true;
+    if (identity?.clientKey) player.clientKey = identity.clientKey;
 
     player.drunkLevel = Math.min(10, Math.max(1, level));
     player.isFino = isFino(player.drunkLevel);
-    room.drunkCheckSubmitted[playerId] = true;
+    writeDrunkCheck(room, player, true);
 
     if (player.isFino) {
       this.addAlert(
@@ -343,29 +473,14 @@ export class RoomManager {
       );
     }
 
-    if (!allDrunkCheckSubmitted(room)) return room;
-
-    room.lastDrunkCheckRound = room.round;
-    room.phase = "challenge";
-
-    const active = room.players.filter((p) => p.connected);
-    const allSweet =
-      active.length > 0 && active.every((p) => isInSweetSpot(p.drunkLevel));
-    if (allSweet && active.length > 0 && room.round > 0) {
-      this.addAlert(
-        room,
-        "info",
-        "🎉 ¡NIVEL PERFECTO! Todos entre 7.5 y 8.5. Sois unos profesionales."
-      );
-      room.phase = "ended";
-    }
-
+    tryAdvanceDrunkCheck(room, (message) => this.addAlert(room, "info", message));
     return room;
   }
 
   finishDrunkCheck(code: string): RoomState | null {
     const room = this.getRoom(code);
     if (!room) return null;
+    room.lastDrunkCheckRound = room.round;
     room.phase = "challenge";
     return room;
   }
@@ -468,7 +583,7 @@ export class RoomManager {
     room.currentTargets = targets.map((t) => t.id);
     room.phase = "challenge";
 
-    const roomOrients = room.settings.orientations;
+    const roomOrients = room.settings.orientations ?? [];
     const drinkAmounts: Record<string, number> = {};
     const skipDrinkAmounts: Record<string, number> = {};
     const soberAlternatives: Record<string, string> = {};
@@ -684,6 +799,11 @@ export class RoomManager {
     const room = this.getRoom(code);
     if (!room || room.hostId !== hostId || room.phase !== "ended") return null;
     room.phase = "challenge";
+    room.activeSpin = null;
+    room.resolvedTargets = [];
+    room.currentTargets = [];
+    room.currentChallenge = null;
+    room.currentMode = null;
     return room;
   }
 
@@ -693,6 +813,7 @@ export class RoomManager {
 
     const player = room.players.find((p) => p.id === playerId);
     if (player) player.connected = false;
+    tryAdvanceDrunkCheck(room, (message) => this.addAlert(room, "info", message));
     return room;
   }
 
@@ -742,16 +863,17 @@ export class RoomManager {
       if (!contentLevelAllowed(c.contentLevel, room.settings!.contentLevel))
         return false;
       if (c.type === "strip" && !room.settings!.stripEnabled) return false;
-      const orientations = room.settings!.orientations;
-      if (!matchesOrientation(c.orientations, orientations)) return false;
+      const orientations = room.settings!.orientations ?? [];
+      const challengeOrients = c.orientations ?? [];
+      if (!matchesOrientation(challengeOrients, orientations)) return false;
       if (
         !room.settings!.coupleChallengesEnabled &&
         (c.type === "couple" ||
-          (c.orientations.length > 0 && !c.orientations.includes("neutro")))
+          (challengeOrients.length > 0 && !challengeOrients.includes("neutro")))
       )
         return false;
       if (!challengeFitsRoomGenders(c, active, room.settings!)) return false;
-      if (!challengeFitsTargets(c, targets, active, room.settings!.orientations))
+      if (!challengeFitsTargets(c, targets, active, orientations))
         return false;
       return true;
     });
@@ -783,8 +905,10 @@ export class RoomManager {
 export type JoinErrorCode =
   | "ROOM_EXPIRED"
   | "GAME_IN_PROGRESS"
+  | "SETUP_IN_PROGRESS"
   | "ROOM_FULL"
-  | "NOT_HOST";
+  | "NOT_HOST"
+  | "NAME_TAKEN";
 
 export type JoinRoomResult =
   | { ok: true; room: RoomState }

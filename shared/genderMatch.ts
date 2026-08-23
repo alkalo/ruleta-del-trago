@@ -68,11 +68,12 @@ export function allowedOtherGenders(
   challenge: Challenge,
   roomOrients: OrientationPref[]
 ): OtherGenderRule {
-  const listed = challenge.orientations;
+  const listed = challenge.orientations ?? [];
+  const allowedRoom = roomOrients ?? [];
   const orients =
     listed.length === 0
       ? (["neutro"] as OrientationPref[])
-      : listed.filter((o) => o === "neutro" || roomOrients.includes(o));
+      : listed.filter((o) => o === "neutro" || allowedRoom.includes(o));
   if (orients.length === 0) return "none";
 
   const theme = challengeGenderTheme(orients);

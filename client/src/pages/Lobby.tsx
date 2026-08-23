@@ -29,7 +29,11 @@ export default function Lobby() {
       await startGame();
       navigate(`/game/${roomCode}`);
     } catch (e) {
-      alert("Necesitas al menos 2 jugadores conectados");
+      alert(
+        e instanceof Error
+          ? e.message
+          : "Necesitas al menos 2 jugadores conectados"
+      );
     }
   };
 
@@ -113,7 +117,7 @@ export default function Lobby() {
 
       {!isHost && (
         <div className="card" style={{ marginTop: 16 }}>
-          <p>Esperando a que el host inicie… No refresques o te desconectas.</p>
+          <p>Esperando a que el host inicie… Si recargas, vuelve a entrar con el mismo nombre.</p>
         </div>
       )}
     </div>

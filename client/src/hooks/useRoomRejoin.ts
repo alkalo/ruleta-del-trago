@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { RoomRejoinError, useSocket } from "../context/SocketContext";
+import {
+  clearPlayerSession,
+  RoomRejoinError,
+  useSocket,
+} from "../context/SocketContext";
 
 export interface RoomLoadError {
   kind: "expired" | "failed";
@@ -21,6 +25,7 @@ export function useRoomRejoin(code: string | undefined) {
     }
     const id = window.setTimeout(() => {
       if (!roomRef.current) {
+        clearPlayerSession();
         setLoadError((prev) =>
           prev ?? { kind: "expired", message: "La sala expiró. Crea otra." }
         );
@@ -45,6 +50,7 @@ export function useRoomRejoin(code: string | undefined) {
       (error: unknown) => {
         if (cancelled || roomRef.current) return;
         if (error instanceof RoomRejoinError && error.kind === "expired") {
+          clearPlayerSession();
           setLoadError({
             kind: "expired",
             message: "La sala expiró. Crea otra.",

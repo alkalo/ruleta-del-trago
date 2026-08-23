@@ -7,21 +7,64 @@ import {
   type ReactNode,
 } from "react";
 import { io, Socket } from "socket.io-client";
-import type { RoomState, GameSettings, Challenge, Gender } from "@shared/types";
+import type { RoomState, GameSettings, Challenge, Gender, Player } from "@shared/types";
 import { normalizeGender } from "@shared/types";
 
 const SESSION_KEY = "ruleta-del-trago-session";
+const CLIENT_KEY_STORAGE = "ruleta-del-trago-client-key";
+
+let rejoinEpoch = 0;
+
+export function clearPlayerSession(): void {
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function abandonPlayerSession(): void {
+  rejoinEpoch += 1;
+  rejoinInFlight = null;
+  clearPlayerSession();
+}
 
 function getSocketUrl(): string {
-  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
-  if (typeof window === "undefined") return "";
-  if (
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1"
-  ) {
-    return "http://localhost:3000";
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    const envUrl = import.meta.env.VITE_SOCKET_URL as string | undefined;
+    const envIsLocal = !!envUrl && /localhost|127\.0\.0\.1/i.test(envUrl);
+    if (host && host !== "localhost" && host !== "127.0.0.1") {
+      if (envUrl && !envIsLocal) return envUrl;
+      return window.location.origin;
+    }
   }
-  return window.location.origin;
+  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
+  return "http://localhost:3000";
+}
+
+export function getClientKey(): string {
+  try {
+    let key = sessionStorage.getItem(CLIENT_KEY_STORAGE);
+    if (!key) {
+      key =
+        crypto.randomUUID?.() ??
+        `k-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      sessionStorage.setItem(CLIENT_KEY_STORAGE, key);
+    }
+    return key;
+  } catch {
+    return `k-${Date.now()}`;
+  }
+}
+
+function sessionPayload(extra: Record<string, unknown> = {}) {
+  return {
+    code: getSessionCode(),
+    name: getSessionName(),
+    clientKey: getClientKey(),
+    ...extra,
+  };
 }
 
 interface SessionData {
@@ -45,6 +88,38 @@ function readSession(): SessionData | null {
 
 function getSessionCode(): string | null {
   return readSession()?.code ?? null;
+}
+
+function getSessionName(): string | undefined {
+  const name = readSession()?.name?.trim();
+  return name || undefined;
+}
+
+const ACK_TIMEOUT_MSG =
+  "El servidor no responde. Revisa la conexión e inténtalo de nuevo.";
+
+function playAck(
+  socket: Socket,
+  event: string,
+  payload?: unknown,
+  timeoutMs = 8000
+): Promise<AckRes> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(ACK_TIMEOUT_MSG));
+    }, timeoutMs);
+    const ack = (res: AckRes) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(res ?? { ok: false });
+    };
+    if (payload !== undefined) socket.emit(event, payload, ack);
+    else socket.emit(event, ack);
+  });
 }
 
 function saveSession(data: SessionData): void {
@@ -90,6 +165,15 @@ type AckRes = {
   error?: string;
   errorCode?: string;
   exists?: boolean;
+  spinResult?: {
+    targets: string[];
+    mode: string;
+    challenge: Challenge;
+    drinkAmounts: Record<string, number>;
+    skipDrinkAmounts?: Record<string, number>;
+    soberAlternatives: Record<string, string>;
+    displayTexts: Record<string, string>;
+  };
 };
 
 function ackEmit(
@@ -134,12 +218,16 @@ async function performRejoin(
   setRoom: (room: RoomState) => void
 ): Promise<RoomState> {
   const normalized = code.trim().toUpperCase();
+  const epoch = rejoinEpoch;
   if (rejoinInFlight?.key === normalized) {
     return rejoinInFlight.promise;
   }
 
   const run = async (): Promise<RoomState> => {
     await waitConnected(socket);
+    if (epoch !== rejoinEpoch) {
+      throw new RoomRejoinError("failed", "Sesión descartada.");
+    }
     const session = readSession();
     const gender = normalizeGender(session?.gender);
     const name = session?.name?.trim() ?? "";
@@ -147,12 +235,13 @@ async function performRejoin(
     const drinksAlcohol = session?.drinksAlcohol ?? true;
     const sessionCode = session?.code?.trim().toUpperCase() ?? "";
     const sameRoom = sessionCode === normalized;
-    const tryAsHost = sameRoom && session?.isHost !== false;
+    const tryAsHost = sameRoom && session?.isHost === true;
 
     if (tryAsHost) {
       const hostRes = await ackEmit(socket, "room:rejoinHost", {
         code: normalized,
         name,
+        clientKey: getClientKey(),
       });
       if (hostRes.ok && hostRes.room) {
         savePlayerSession({
@@ -167,6 +256,7 @@ async function performRejoin(
         return hostRes.room;
       }
       if (hostRes.errorCode === "ROOM_EXPIRED") {
+        clearPlayerSession();
         throw new RoomRejoinError("expired", "La sala expiró. Crea otra.");
       }
     }
@@ -176,6 +266,7 @@ async function performRejoin(
         code: normalized,
       });
       if (!lookup.exists) {
+        clearPlayerSession();
         throw new RoomRejoinError("expired", "La sala expiró. Crea otra.");
       }
       throw new RoomRejoinError(
@@ -190,6 +281,7 @@ async function performRejoin(
       drunkLevel,
       drinksAlcohol,
       gender,
+      clientKey: getClientKey(),
     });
     if (joinRes.ok && joinRes.room) {
       savePlayerSession({
@@ -204,6 +296,7 @@ async function performRejoin(
       return joinRes.room;
     }
     if (joinRes.errorCode === "ROOM_EXPIRED") {
+      clearPlayerSession();
       throw new RoomRejoinError("expired", "La sala expiró. Crea otra.");
     }
     throw new RoomRejoinError(
@@ -262,6 +355,34 @@ interface SocketContextValue {
   markSkipped: () => Promise<void>;
   continueGame: () => Promise<RoomState>;
   rejoinByCode: (code: string) => Promise<RoomState>;
+  discardSession: () => void;
+  clientKey: string;
+  hostMarkDrank: (targetId: string) => Promise<void>;
+  hostMarkCompleted: (targetId: string) => Promise<void>;
+  hostMarkSkipped: (targetId: string) => Promise<void>;
+}
+
+function resolveSelf(
+  room: RoomState | null,
+  socketId: string
+): Player | undefined {
+  if (!room) return undefined;
+  const byId = room.players.find((p) => p.id === socketId);
+  if (byId) return byId;
+  const key = getClientKey();
+  if (key) {
+    const byKey = room.players.find((p) => p.clientKey === key);
+    if (byKey) return byKey;
+  }
+  const session = readSession();
+  if (session?.isHost === true) {
+    return room.players.find((p) => p.isHost);
+  }
+  if (session?.name) {
+    const n = session.name.trim().toLowerCase();
+    return room.players.find((p) => p.name.toLowerCase() === n);
+  }
+  return undefined;
 }
 
 const SocketContext = createContext<SocketContextValue | null>(null);
@@ -282,6 +403,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     });
     setSocket(s);
     s.on("room:update", (r: RoomState) => {
+      const sessionCode = readSession()?.code?.trim().toUpperCase();
+      if (sessionCode && r.code.trim().toUpperCase() !== sessionCode) return;
       setRoom(r);
       if (r.activeSpin) setLastSpinResult(r.activeSpin);
     });
@@ -304,84 +427,97 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const createRoom = useCallback(() => {
-    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-    return new Promise<RoomState>((resolve, reject) => {
-      socket.emit("room:create", (res: { ok: boolean; room?: RoomState }) => {
-        if (res.ok && res.room) {
-          savePlayerSession({
-            code: res.room.code,
-            name: "Host",
-            drunkLevel: 5,
-            drinksAlcohol: true,
-            gender: "otro",
-            isHost: true,
-          });
-          setRoom(res.room);
-          resolve(res.room);
-        } else reject(new Error("Error al crear sala"));
-      });
+  const discardSession = useCallback(() => {
+    abandonPlayerSession();
+    setRoom(null);
+    setLastSpinResult(null);
+    if (socket) socket.emit("room:leave");
+  }, [socket]);
+
+  const createRoom = useCallback(async () => {
+    if (!socket) throw new Error("Sin conexión al servidor");
+    abandonPlayerSession();
+    setRoom(null);
+    setLastSpinResult(null);
+    try {
+      await playAck(socket, "room:leave");
+    } catch {
+      /* la sala vieja puede no existir */
+    }
+    const res = await playAck(socket, "room:create", {
+      clientKey: getClientKey(),
     });
+    if (res.ok && res.room) {
+      setLastSpinResult(null);
+      savePlayerSession({
+        code: res.room.code,
+        name: "Host",
+        drunkLevel: 5,
+        drinksAlcohol: true,
+        gender: "otro",
+        isHost: true,
+      });
+      setRoom(res.room);
+      return res.room;
+    }
+    throw new Error("Error al crear sala");
   }, [socket]);
 
   const joinRoom = useCallback(
-    (
+    async (
       code: string,
       name: string,
       drunkLevel: number,
       drinksAlcohol: boolean,
       gender: Gender
     ) => {
-      if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-      return new Promise<RoomState>((resolve, reject) => {
-        socket.emit(
-          "room:join",
-          { code, name, drunkLevel, drinksAlcohol, gender },
-          (res: { ok: boolean; room?: RoomState; error?: string }) => {
-            if (res.ok && res.room) {
-              savePlayerSession({
-                code: res.room.code,
-                name,
-                drunkLevel,
-                drinksAlcohol,
-                gender: normalizeGender(gender),
-                isHost: res.room.hostId === socket.id,
-              });
-              setRoom(res.room);
-              resolve(res.room);
-            } else reject(new Error(res.error ?? "Error al unirse"));
-          }
-        );
+      if (!socket) throw new Error("Sin conexión al servidor");
+      const previous = readSession()?.code?.trim().toUpperCase();
+      if (previous && previous !== code.trim().toUpperCase()) {
+        abandonPlayerSession();
+      }
+      const res = await playAck(socket, "room:join", {
+        code,
+        name,
+        drunkLevel,
+        drinksAlcohol,
+        gender,
+        clientKey: getClientKey(),
       });
+      if (res.ok && res.room) {
+        savePlayerSession({
+          code: res.room.code,
+          name,
+          drunkLevel,
+          drinksAlcohol,
+          gender: normalizeGender(gender),
+          isHost: res.room.hostId === socket.id,
+        });
+        setRoom(res.room);
+        return res.room;
+      }
+      throw new Error(res.error ?? "Error al unirse");
     },
     [socket]
   );
 
   const setSettings = useCallback(
-    (settings: GameSettings, explicitCode?: string) => {
-      if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
+    async (settings: GameSettings, explicitCode?: string) => {
+      if (!socket) throw new Error("Sin conexión al servidor");
       const roomCode = explicitCode ?? room?.code ?? getSessionCode();
       if (!roomCode) {
-        return Promise.reject(
-          new Error("No hay código de sala. Vuelve a crear la partida.")
-        );
+        throw new Error("No hay código de sala. Vuelve a crear la partida.");
       }
-      return new Promise<RoomState>((resolve, reject) => {
-        socket.emit(
-          "host:settings",
-          { code: roomCode, settings },
-          (res: { ok: boolean; room?: RoomState; error?: string }) => {
-            if (res.ok && res.room) {
-              setRoom(res.room);
-              resolve(res.room);
-            } else {
-              reject(
-                new Error(res.error ?? "Error al guardar configuración")
-              );
-            }
-          }
-        );
+      const res = await playAck(socket, "host:settings", {
+        code: roomCode,
+        settings,
+        clientKey: getClientKey(),
       });
+      if (res.ok && res.room) {
+        setRoom(res.room);
+        return res.room;
+      }
+      throw new Error(res.error ?? "Error al guardar configuración");
     },
     [socket, room]
   );
@@ -400,7 +536,13 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       drinksAlcohol?: boolean;
       gender?: Gender;
     }) => {
-      if (socket) socket.emit("host:updateProfile", data);
+      if (socket) {
+        socket.emit("host:updateProfile", {
+          ...data,
+          code: getSessionCode() ?? undefined,
+          clientKey: getClientKey(),
+        });
+      }
       const session = readSession();
       const code = session?.code ?? getSessionCode();
       if (code) {
@@ -423,109 +565,111 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     [socket]
   );
 
-  const startGame = useCallback(() => {
-    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-    return new Promise<RoomState>((resolve, reject) => {
-      socket.emit("host:start", (res: { ok: boolean; room?: RoomState; error?: string }) => {
-        if (res.ok && res.room) resolve(res.room);
-        else reject(new Error(res.error ?? "Error al iniciar"));
-      });
-    });
+  const startGame = useCallback(async () => {
+    if (!socket) throw new Error("Sin conexión al servidor");
+    const res = await playAck(socket, "host:start", sessionPayload());
+    if (res.ok && res.room) {
+      setRoom(res.room);
+      return res.room;
+    }
+    throw new Error(res.error ?? "Error al iniciar");
   }, [socket]);
 
-  const beginSpin = useCallback(() => {
-    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-    const code = getSessionCode();
-    return new Promise<RoomState>((resolve, reject) => {
-      socket.emit(
-        "host:spin",
-        { code },
-        (res: { ok: boolean; room?: RoomState; error?: string }) => {
-          if (res.ok && res.room) resolve(res.room);
-          else reject(new Error(res.error ?? "No se pudo girar"));
-        }
-      );
-    });
+  const beginSpin = useCallback(async () => {
+    if (!socket) throw new Error("Sin conexión al servidor");
+    const res = await playAck(socket, "host:spin", sessionPayload());
+    if (res.ok && res.room) {
+      setRoom(res.room);
+      return res.room;
+    }
+    throw new Error(res.error ?? "No se pudo girar");
   }, [socket]);
 
-  const completeSpin = useCallback(() => {
-    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-    return new Promise<SpinResultPayload>((resolve, reject) => {
-      socket.emit(
-        "host:spinComplete",
-        { code: getSessionCode() },
-        (res: {
-          ok: boolean;
-          spinResult?: SpinResultPayload;
-          error?: string;
-        }) => {
-          if (res.ok && res.spinResult) {
-            setLastSpinResult(res.spinResult);
-            resolve(res.spinResult);
-          } else reject(new Error(res.error ?? "Error al completar giro"));
-        }
-      );
-    });
+  const completeSpin = useCallback(async () => {
+    if (!socket) throw new Error("Sin conexión al servidor");
+    const res = await playAck(socket, "host:spinComplete", sessionPayload());
+    if (res.ok && res.spinResult) {
+      setLastSpinResult(res.spinResult);
+      if (res.room) setRoom(res.room);
+      return res.spinResult;
+    }
+    throw new Error(res.error ?? "Error al completar giro");
   }, [socket]);
 
   const submitDrunkLevel = useCallback(
-    (level: number) => {
-      if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-      return new Promise<RoomState>((resolve, reject) => {
-        socket.emit(
-          "player:submitDrunkLevel",
-          { level },
-          (res: { ok: boolean; room?: RoomState; error?: string }) => {
-            if (res.ok && res.room) {
-              setRoom(res.room);
-              resolve(res.room);
-            } else reject(new Error(res.error ?? "No se pudo confirmar nivel"));
-          }
-        );
+    async (level: number) => {
+      if (!socket) throw new Error("Sin conexión al servidor");
+      const res = await playAck(socket, "player:submitDrunkLevel", {
+        ...sessionPayload(),
+        level,
       });
+      if (res.ok && res.room) {
+        setRoom(res.room);
+        return res.room;
+      }
+      throw new Error(res.error ?? "No se pudo confirmar nivel");
     },
     [socket]
   );
 
-  const markDrank = useCallback(() => {
-    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-    return new Promise<void>((resolve, reject) => {
-      socket.emit("player:drank", (res: { ok: boolean; error?: string }) => {
-        if (res.ok) resolve();
-        else reject(new Error(res.error ?? "Error"));
-      });
-    });
+  const markAction = useCallback(
+    async (event: "player:drank" | "player:completed" | "player:skipped") => {
+      if (!socket) throw new Error("Sin conexión al servidor");
+      const res = await playAck(socket, event, sessionPayload());
+      if (res.ok) return;
+      throw new Error(res.error ?? "Error");
+    },
+    [socket]
+  );
+
+  const markDrank = useCallback(() => markAction("player:drank"), [markAction]);
+  const markCompleted = useCallback(
+    () => markAction("player:completed"),
+    [markAction]
+  );
+  const markSkipped = useCallback(
+    () => markAction("player:skipped"),
+    [markAction]
+  );
+
+  const continueGame = useCallback(async () => {
+    if (!socket) throw new Error("Sin conexión al servidor");
+    const res = await playAck(socket, "host:continue", sessionPayload());
+    if (res.ok && res.room) {
+      setRoom(res.room);
+      return res.room;
+    }
+    throw new Error(res.error ?? "Error al continuar");
   }, [socket]);
 
-  const markCompleted = useCallback(() => {
-    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-    return new Promise<void>((resolve, reject) => {
-      socket.emit("player:completed", (res: { ok: boolean; error?: string }) => {
-        if (res.ok) resolve();
-        else reject(new Error(res.error ?? "Error"));
+  const hostMarkAction = useCallback(
+    async (
+      event: "host:markDrank" | "host:markCompleted" | "host:markSkipped",
+      targetId: string
+    ) => {
+      if (!socket) throw new Error("Sin conexión al servidor");
+      const res = await playAck(socket, event, {
+        ...sessionPayload(),
+        targetPlayerId: targetId,
       });
-    });
-  }, [socket]);
+      if (res.ok) return;
+      throw new Error(res.error ?? "No se pudo marcar el reto");
+    },
+    [socket]
+  );
 
-  const markSkipped = useCallback(() => {
-    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-    return new Promise<void>((resolve, reject) => {
-      socket.emit("player:skipped", (res: { ok: boolean; error?: string }) => {
-        if (res.ok) resolve();
-        else reject(new Error(res.error ?? "Error"));
-      });
-    });
-  }, [socket]);
-
-  const continueGame = useCallback(() => {
-    if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-    return new Promise<RoomState>((resolve, reject) => {
-      socket.emit("host:continue", (res: { ok: boolean; room?: RoomState }) => {
-        if (res.ok && res.room) resolve(res.room);
-        else reject(new Error("Error al continuar"));
-      });
-    });
-  }, [socket]);
+  const hostMarkDrank = useCallback(
+    (targetId: string) => hostMarkAction("host:markDrank", targetId),
+    [hostMarkAction]
+  );
+  const hostMarkCompleted = useCallback(
+    (targetId: string) => hostMarkAction("host:markCompleted", targetId),
+    [hostMarkAction]
+  );
+  const hostMarkSkipped = useCallback(
+    (targetId: string) => hostMarkAction("host:markSkipped", targetId),
+    [hostMarkAction]
+  );
 
   const rejoinByCode = useCallback(
     (code: string) => {
@@ -539,8 +683,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     [socket]
   );
 
-  const playerId = socket?.id ?? "";
-  const isHost = room?.hostId === playerId;
+  const selfPlayer = resolveSelf(room, socket?.id ?? "");
+  const playerId = selfPlayer?.id ?? socket?.id ?? "";
+  const isHost = Boolean(selfPlayer?.isHost || (room && room.hostId === playerId));
+  const clientKey = getClientKey();
 
   return (
     <SocketContext.Provider
@@ -565,6 +711,11 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         markSkipped,
         continueGame,
         rejoinByCode,
+        discardSession,
+        clientKey,
+        hostMarkDrank,
+        hostMarkCompleted,
+        hostMarkSkipped,
       }}
     >
       {children}

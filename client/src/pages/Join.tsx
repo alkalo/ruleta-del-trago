@@ -19,7 +19,7 @@ export default function Join() {
 
   useEffect(() => {
     const c = searchParams.get("code");
-    if (c) setCode(c.toUpperCase());
+    if (c) setCode(c.trim().toUpperCase());
   }, [searchParams]);
 
   const handleJoin = async () => {
@@ -50,8 +50,8 @@ export default function Join() {
       }
     } catch (e) {
       alert(
-        typeof e === "string"
-          ? e
+        e instanceof Error
+          ? e.message
           : "No se pudo unir. ¿Código correcto? Si la partida ya empezó, usa el mismo nombre."
       );
     } finally {
@@ -69,7 +69,7 @@ export default function Join() {
         className="input"
         placeholder="ABCDE"
         value={code}
-        onChange={(e) => setCode(e.target.value.toUpperCase())}
+        onChange={(e) => setCode(e.target.value.trim().toUpperCase())}
         maxLength={5}
       />
 

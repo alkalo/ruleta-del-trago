@@ -99,6 +99,10 @@ export default function RouletteWheel({
 
   useEffect(() => {
     if (!spinning) return;
+    if (names.length === 0) {
+      completeRef.current?.();
+      return;
+    }
 
     const start = performance.now();
     const startRot = rotationRef.current;
@@ -116,12 +120,14 @@ export default function RouletteWheel({
       return () => cancelAnimationFrame(raf);
     }
 
-    const count = Math.max(names.length, 1);
+    const count = names.length;
+    const safeWinner =
+      ((winnerIndex % count) + count) % count;
     const extraSpins = 5 + Math.random() * 3;
     const target =
       startRot +
       extraSpins * 360 +
-      forwardDelta(startRot, landingModulo(winnerIndex, count));
+      forwardDelta(startRot, landingModulo(safeWinner, count));
     const duration = 3500;
     let finished = false;
 

@@ -63,6 +63,8 @@ export interface Player {
   id: string;
   name: string;
   gender?: Gender;
+  /** Identidad estable del móvil/pestaña; el socket.id cambia al recargar. */
+  clientKey?: string;
   drunkLevel: number;
   drinksAlcohol: boolean;
   isHost: boolean;

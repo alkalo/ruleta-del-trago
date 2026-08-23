@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
@@ -28,12 +28,19 @@ export default function Game() {
     markCompleted,
     markSkipped,
     continueGame,
+    hostMarkDrank,
+    hostMarkCompleted,
+    hostMarkSkipped,
+    clientKey,
   } = useSocket();
 
   const [localSpinning, setLocalSpinning] = useState(false);
   const [winnerIndex, setWinnerIndex] = useState<number | null>(null);
+  const [iStartedSpin, setIStartedSpin] = useState(false);
+  const completeOnceRef = useRef(false);
 
-  const players = room?.players.filter((p) => p.connected) ?? [];
+  const allPlayers = room?.players ?? [];
+  const players = allPlayers.filter((p) => p.connected);
   const spinNames =
     room &&
     room.spinPlayerIds.length > 0 &&
@@ -45,10 +52,13 @@ export default function Game() {
   const names = spinNames.length > 0 ? spinNames : players.map((p) => p.name);
 
   const spinDisplay = useMemo(() => {
+    if (room?.phase === "spinning" || localSpinning) {
+      return room?.activeSpin ?? null;
+    }
     if (room?.activeSpin) return room.activeSpin;
     if (lastSpinResult) return lastSpinResult;
     return null;
-  }, [lastSpinResult, room?.activeSpin]);
+  }, [lastSpinResult, localSpinning, room?.activeSpin, room?.phase]);
 
   const resolvedTargets = room?.resolvedTargets ?? [];
   const pendingTargets =
@@ -72,38 +82,95 @@ export default function Game() {
     }
   }, [room?.sessionAlerts.length]);
 
+  useEffect(() => {
+    if (room?.phase !== "spinning") {
+      setLocalSpinning(false);
+      setIStartedSpin(false);
+      completeOnceRef.current = false;
+    }
+  }, [room?.phase]);
+
+  useEffect(() => {
+    if (!isHost || room?.phase !== "spinning") return;
+    const t = window.setTimeout(() => {
+      if (completeOnceRef.current) return;
+      completeOnceRef.current = true;
+      void completeSpin().catch(() => {
+        completeOnceRef.current = false;
+      });
+    }, iStartedSpin ? 8000 : 1500);
+    return () => window.clearTimeout(t);
+  }, [isHost, room?.phase, completeSpin, iStartedSpin]);
+
   const handleSpin = async () => {
     if (!canSpin) return;
     sounds.click();
     setWinnerIndex(null);
+    completeOnceRef.current = false;
+    setIStartedSpin(true);
 
     try {
       const updatedRoom = await beginSpin();
-      if (updatedRoom?.phase === "drunk_check") return;
+      if (updatedRoom?.phase === "drunk_check") {
+        setIStartedSpin(false);
+        setLocalSpinning(false);
+        return;
+      }
 
+      const wheelNames =
+        updatedRoom.spinPlayerIds.length > 0
+          ? updatedRoom.spinPlayerIds
+              .map((id) => updatedRoom.players.find((p) => p.id === id)?.name)
+              .filter((n): n is string => Boolean(n))
+          : updatedRoom.players
+              .filter((p) => p.connected)
+              .map((p) => p.name);
+
+      if (wheelNames.length === 0) {
+        setIStartedSpin(true);
+        setLocalSpinning(false);
+        completeOnceRef.current = true;
+        try {
+          await completeSpin();
+        } catch (e) {
+          completeOnceRef.current = false;
+          throw e;
+        } finally {
+          setIStartedSpin(false);
+        }
+        return;
+      }
+
+      setIStartedSpin(true);
       setLocalSpinning(true);
-      const idx = Math.floor(Math.random() * names.length);
-      setWinnerIndex(idx);
+      setWinnerIndex(Math.floor(Math.random() * wheelNames.length));
     } catch (e) {
+      setIStartedSpin(false);
+      setLocalSpinning(false);
       alert(e instanceof Error ? e.message : "No se pudo girar");
     }
   };
 
   const onSpinComplete = useCallback(async () => {
     setLocalSpinning(false);
-    if (!isHost) return;
+    if (!iStartedSpin && !isHost) return;
+    if (completeOnceRef.current) return;
+    completeOnceRef.current = true;
     try {
       await completeSpin();
     } catch (e) {
+      completeOnceRef.current = false;
       alert(e instanceof Error ? e.message : "Error al completar giro");
+    } finally {
+      setIStartedSpin(false);
     }
-  }, [isHost, completeSpin]);
+  }, [iStartedSpin, isHost, completeSpin]);
 
   const handleDrunkSubmit = async (level: number) => {
     try {
       await submitDrunkLevel(level);
-    } catch {
-      alert("Error al confirmar nivel");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Error al confirmar nivel");
     }
   };
 
@@ -111,8 +178,15 @@ export default function Game() {
     targetId: string,
     action: "drank" | "completed" | "skipped"
   ) => {
-    if (playerId !== targetId) return;
+    const asHost = isHost && playerId !== targetId;
+    if (playerId !== targetId && !asHost) return;
     try {
+      if (asHost) {
+        if (action === "drank") await hostMarkDrank(targetId);
+        else if (action === "completed") await hostMarkCompleted(targetId);
+        else await hostMarkSkipped(targetId);
+        return;
+      }
       if (action === "drank") await markDrank();
       else if (action === "completed") await markCompleted();
       else await markSkipped();
@@ -162,8 +236,8 @@ export default function Game() {
           onContinue={async () => {
             try {
               await continueGame();
-            } catch {
-              alert("Solo el host puede continuar");
+            } catch (e) {
+              alert(e instanceof Error ? e.message : "Solo el host puede continuar");
             }
           }}
         />
@@ -171,8 +245,10 @@ export default function Game() {
 
       {phase === "drunk_check" && (
         <DrunkCheckModal
-          players={players}
+          players={allPlayers}
           playerId={playerId}
+          clientKey={clientKey}
+          isHost={isHost}
           drunkCheckSubmitted={room.drunkCheckSubmitted}
           onSubmit={handleDrunkSubmit}
           roundLabel={
@@ -188,8 +264,10 @@ export default function Game() {
           <RouletteWheel
             names={names}
             spinning={localSpinning || phase === "spinning"}
-            winnerIndex={isHost ? winnerIndex : null}
-            onSpinComplete={isHost ? onSpinComplete : undefined}
+            winnerIndex={iStartedSpin || isHost ? winnerIndex : null}
+            onSpinComplete={
+              iStartedSpin || isHost ? onSpinComplete : undefined
+            }
           />
 
           {isHost && (
@@ -205,7 +283,7 @@ export default function Game() {
                   <p className="muted" style={{ textAlign: "center" }}>
                     Esperando que marquen:{" "}
                     {pendingTargets
-                      .map((tid) => players.find((p) => p.id === tid)?.name)
+                      .map((tid) => allPlayers.find((p) => p.id === tid)?.name)
                       .filter(Boolean)
                       .join(", ")}
                   </p>
@@ -228,15 +306,18 @@ export default function Game() {
                 </p>
               )}
               {targets.map((tid) => {
-                const player = players.find((p) => p.id === tid);
+                const player = allPlayers.find((p) => p.id === tid);
                 if (!player) return null;
                 const acted = resolvedTargets.includes(tid);
+                const hostCanResolve =
+                  isHost && playerId !== tid && !acted;
                 return (
                   <div key={tid}>
                     <h2 style={{ color: "var(--yellow)" }}>
                       👉 {player.name}
                       {player.isFino && " (FINO)"}
                       {isBirthdayName(player.name) && " 🎂"}
+                      {!player.connected && " (sin conexión)"}
                     </h2>
                     {isBirthdayName(player.name) && (
                       <div className="alert-banner birthday-spin-toast">
@@ -258,6 +339,38 @@ export default function Game() {
                       onSkipped={() => handleAction(tid, "skipped")}
                       acted={acted}
                     />
+                    {hostCanResolve && !player.connected && (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 8,
+                          marginTop: 8,
+                        }}
+                      >
+                        <p className="muted" style={{ textAlign: "center" }}>
+                          Sin conexión. El host puede cerrar su ronda:
+                        </p>
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => handleAction(tid, "drank")}
+                        >
+                          Marcar bebido por {player.name}
+                        </button>
+                        <button
+                          className="btn btn-cyan"
+                          onClick={() => handleAction(tid, "completed")}
+                        >
+                          Marcar cumplido por {player.name}
+                        </button>
+                        <button
+                          className="btn btn-danger"
+                          onClick={() => handleAction(tid, "skipped")}
+                        >
+                          Marcar skip por {player.name}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -34,11 +34,12 @@ export function contentLevelDistance(
 
 /** Neutro vale para todos. El resto solo si el host marcó esa orientación. */
 export function matchesOrientation(
-  challengeOrients: OrientationPref[],
-  selected: OrientationPref[]
+  challengeOrients: OrientationPref[] | undefined,
+  selected: OrientationPref[] | undefined
 ): boolean {
-  if (challengeOrients.length === 0) return true;
+  if (!challengeOrients || challengeOrients.length === 0) return true;
   if (challengeOrients.includes("neutro")) return true;
+  if (!selected || selected.length === 0) return false;
   return challengeOrients.some((o) => selected.includes(o));
 }
 

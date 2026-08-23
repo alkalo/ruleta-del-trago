@@ -12,8 +12,12 @@ export default function Home() {
     try {
       const room = await createRoom();
       navigate(`/host/setup?code=${room.code}`);
-    } catch {
-      alert("Error al crear sala. ¿Servidor encendido?");
+    } catch (e) {
+      alert(
+        e instanceof Error
+          ? e.message
+          : "Error al crear sala. ¿Servidor encendido?"
+      );
     }
   };
 
