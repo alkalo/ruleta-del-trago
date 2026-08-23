@@ -287,8 +287,7 @@ export default function HostSetup() {
             {CONTENT_LEVEL_LABELS[contentLevel]}
           </p>
           <p className="muted">
-            Strip: {stripEnabled ? "sí" : "no"} · Pack inicial: 150 retos + tus
-            custom
+            Strip: {stripEnabled ? "sí" : "no"} · Pack: 150 retos
           </p>
         </div>
       )}

@@ -71,7 +71,7 @@ docker compose up --build
 
 - React + Vite + TypeScript
 - Express + Socket.io
-- 150 retos iniciales en español + editor host para custom
+- 150 retos iniciales en español (pack del servidor)
 
 ## Licencia
 

@@ -5,7 +5,7 @@ import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 import { RoomManager } from "./roomManager.js";
-import type { GameSettings, Challenge } from "../../shared/types.js";
+import type { GameSettings } from "../../shared/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -359,27 +359,6 @@ io.on("connection", (socket) => {
       }
       emitRoom(currentCode);
       callback({ ok: true });
-    }
-  );
-
-  socket.on(
-    "host:addChallenge",
-    (challenge: Omit<Challenge, "id">, callback) => {
-      if (!currentCode) {
-        callback({ ok: false });
-        return;
-      }
-      const room = rooms.addCustomChallenge(
-        currentCode,
-        socket.id,
-        challenge
-      );
-      if (!room) {
-        callback({ ok: false });
-        return;
-      }
-      emitRoom(currentCode);
-      callback({ ok: true, room });
     }
   );
 

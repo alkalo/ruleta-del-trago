@@ -3,7 +3,6 @@ import { useEffect } from "react";
 import { useSocket } from "../context/SocketContext";
 import { sounds } from "../utils/sounds";
 import PlayerList from "../components/PlayerList";
-import HostChallengeEditor from "../components/HostChallengeEditor";
 
 export default function Lobby() {
   const { code } = useParams<{ code: string }>();
@@ -77,19 +76,16 @@ export default function Lobby() {
       <PlayerList players={players} title="En la sala" />
 
       {isHost && (
-        <>
-          <HostChallengeEditor />
-          <button
-            className="btn btn-primary"
-            onClick={handleStart}
-            disabled={!canStart}
-            style={{ marginTop: 16 }}
-          >
-            {canStart
-              ? "¡Empezar la locura!"
-              : `Esperando jugadores (${players.length}/2 mín)`}
-          </button>
-        </>
+        <button
+          className="btn btn-primary"
+          onClick={handleStart}
+          disabled={!canStart}
+          style={{ marginTop: 16 }}
+        >
+          {canStart
+            ? "¡Empezar la locura!"
+            : `Esperando jugadores (${players.length}/2 mín)`}
+        </button>
       )}
 
       {!isHost && (

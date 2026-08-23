@@ -7,7 +7,6 @@ import PlayerList from "../components/PlayerList";
 import DrunkCheckModal from "../components/DrunkCheckModal";
 import StatsPanel from "../components/StatsPanel";
 import ChallengeCard from "../components/ChallengeCard";
-import HostChallengeEditor from "../components/HostChallengeEditor";
 import VictoryScreen from "../components/VictoryScreen";
 import type { GameMode } from "@shared/types";
 
@@ -246,8 +245,6 @@ export default function Game() {
 
       <StatsPanel players={players} />
       <PlayerList players={players} title="Estado" />
-
-      {isHost && <HostChallengeEditor />}
     </div>
   );
 }

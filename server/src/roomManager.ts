@@ -309,19 +309,6 @@ export class RoomManager {
     return room;
   }
 
-  addCustomChallenge(code: string, hostId: string, challenge: Omit<Challenge, "id">): RoomState | null {
-    const room = this.getRoom(code);
-    if (!room || room.hostId !== hostId) return null;
-
-    const full: Challenge = {
-      ...challenge,
-      id: `custom-${uuidv4().slice(0, 8)}`,
-      custom: true,
-    };
-    room.customChallenges.push(full);
-    return room;
-  }
-
   beginSpin(code: string, hostId: string): RoomState | null {
     const room = this.getRoom(code);
     if (!room || room.hostId !== hostId) return null;

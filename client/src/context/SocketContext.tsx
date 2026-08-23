@@ -70,7 +70,6 @@ interface SocketContextValue {
   markDrank: () => Promise<void>;
   markCompleted: () => Promise<void>;
   markSkipped: () => Promise<void>;
-  addChallenge: (challenge: Omit<Challenge, "id">) => Promise<RoomState>;
   continueGame: () => Promise<RoomState>;
 }
 
@@ -349,23 +348,6 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     });
   }, [socket]);
 
-  const addChallenge = useCallback(
-    (challenge: Omit<Challenge, "id">) => {
-      if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
-      return new Promise<RoomState>((resolve, reject) => {
-        socket.emit(
-          "host:addChallenge",
-          challenge,
-          (res: { ok: boolean; room?: RoomState }) => {
-            if (res.ok && res.room) resolve(res.room);
-            else reject(new Error("Error al añadir reto"));
-          }
-        );
-      });
-    },
-    [socket]
-  );
-
   const continueGame = useCallback(() => {
     if (!socket) return Promise.reject(new Error("Sin conexión al servidor"));
     return new Promise<RoomState>((resolve, reject) => {
@@ -400,7 +382,6 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         markDrank,
         markCompleted,
         markSkipped,
-        addChallenge,
         continueGame,
       }}
     >
