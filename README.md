@@ -1,6 +1,6 @@
 # Ruleta del Trago 🍻🎰
 
-Juego de fiesta multijugador en tiempo real. Ruleta + retos + tragos adaptados al nivel de borrachera de cada uno.
+Juego de fiesta multijugador en tiempo real. Ruleta + retos + tragos adaptados al nivel de cada persona.
 
 ## Requisitos
 
@@ -61,10 +61,10 @@ docker compose up --build
 ## Flujo del juego
 
 1. **Host** crea sala → configura vibes, tipos de reto, orientación, strip
-2. **Amigos** unen con código (nombre + nivel borracho 1–10 + si beben)
+2. **Amigos** unen con código (nombre + género + nivel 1–10 + si beben)
 3. Host inicia → pausa inicial de niveles
-4. Host gira ruleta → reto adaptado por jugador
-5. Pausas de borrachera cada 4 rondas
+4. Host gira ruleta → reto adaptado por jugador (pareja según géneros de la sala)
+5. Pausas de copas cada 4 rondas
 6. Objetivo: 7.5–8.5 en todos sin pasarse
 
 ## Stack
