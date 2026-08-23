@@ -35,21 +35,30 @@ export default function Game() {
   } = useSocket();
 
   const [localSpinning, setLocalSpinning] = useState(false);
-  const [winnerIndex, setWinnerIndex] = useState<number | null>(null);
   const [iStartedSpin, setIStartedSpin] = useState(false);
   const completeOnceRef = useRef(false);
 
   const allPlayers = room?.players ?? [];
   const players = allPlayers.filter((p) => p.connected);
-  const spinNames =
-    room &&
-    room.spinPlayerIds.length > 0 &&
-    (room.phase === "spinning" || localSpinning)
-      ? room.spinPlayerIds
-          .map((id) => room.players.find((p) => p.id === id)?.name)
-          .filter((n): n is string => Boolean(n))
-      : [];
-  const names = spinNames.length > 0 ? spinNames : players.map((p) => p.name);
+  const wheelIds =
+    room && room.spinPlayerIds.length > 0
+      ? room.spinPlayerIds.filter((id) =>
+          room.players.some((p) => p.id === id)
+        )
+      : players.map((p) => p.id);
+  const names = wheelIds
+    .map((id) => allPlayers.find((p) => p.id === id)?.name)
+    .filter((n): n is string => Boolean(n));
+  const highlightId =
+    room?.spinWinnerId ??
+    room?.activeSpin?.targets?.[0] ??
+    room?.currentTargets?.[0] ??
+    null;
+  const winnerIndex =
+    highlightId && wheelIds.length > 0
+      ? wheelIds.indexOf(highlightId)
+      : null;
+  const syncedWinner = winnerIndex !== null && winnerIndex >= 0 ? winnerIndex : null;
 
   const spinDisplay = useMemo(() => {
     if (room?.phase === "spinning" || localSpinning) {
@@ -105,7 +114,6 @@ export default function Game() {
   const handleSpin = async () => {
     if (!canSpin) return;
     sounds.click();
-    setWinnerIndex(null);
     completeOnceRef.current = false;
     setIStartedSpin(true);
 
@@ -143,7 +151,6 @@ export default function Game() {
 
       setIStartedSpin(true);
       setLocalSpinning(true);
-      setWinnerIndex(Math.floor(Math.random() * wheelNames.length));
     } catch (e) {
       setIStartedSpin(false);
       setLocalSpinning(false);
@@ -264,7 +271,8 @@ export default function Game() {
           <RouletteWheel
             names={names}
             spinning={localSpinning || phase === "spinning"}
-            winnerIndex={iStartedSpin || isHost ? winnerIndex : null}
+            winnerIndex={syncedWinner}
+            turns={room.spinTurns || 6}
             onSpinComplete={
               iStartedSpin || isHost ? onSpinComplete : undefined
             }

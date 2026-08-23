@@ -93,6 +93,8 @@ export interface RoomState {
   currentChallenge: Challenge | null;
   currentTargets: string[];
   spinPlayerIds: string[];
+  spinWinnerId: string | null;
+  spinTurns: number;
   drunkCheckRound: number;
   sessionAlerts: SessionAlert[];
   customChallenges: Challenge[];
@@ -142,7 +144,7 @@ export const CHALLENGE_TYPE_LABELS: Record<ChallengeType, string> = {
 };
 
 export const GAME_MODE_LABELS: Record<GameMode, string> = {
-  cooperativo: "Cooperativo — todos juntos",
+  cooperativo: "Cooperativo — el grupo anima",
   todos_contra_todos: "Todos contra todos",
   todos_contra_uno: "Todos contra uno",
 };

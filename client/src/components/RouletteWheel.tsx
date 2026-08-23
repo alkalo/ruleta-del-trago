@@ -5,6 +5,8 @@ interface Props {
   names: string[];
   spinning: boolean;
   winnerIndex: number | null;
+  /** Vueltas extra iguales en todos los móviles (las decide el servidor). */
+  turns?: number;
   onSpinComplete?: () => void;
 }
 
@@ -90,6 +92,7 @@ export default function RouletteWheel({
   names,
   spinning,
   winnerIndex,
+  turns = 6,
   onSpinComplete,
 }: Props) {
   const [rotation, setRotation] = useState(0);
@@ -123,18 +126,18 @@ export default function RouletteWheel({
     const count = names.length;
     const safeWinner =
       ((winnerIndex % count) + count) % count;
-    const extraSpins = 5 + Math.random() * 3;
-    const target =
-      startRot +
-      extraSpins * 360 +
-      forwardDelta(startRot, landingModulo(safeWinner, count));
+    const extraSpins = Math.max(4, Math.round(turns));
+    const startFrom = 0;
+    rotationRef.current = startFrom;
+    setRotation(startFrom);
+    const target = extraSpins * 360 + landingModulo(safeWinner, count);
     const duration = 3500;
     let finished = false;
 
     const tick = (now: number) => {
       const t = Math.min((now - start) / duration, 1);
       const eased = 1 - (1 - t) ** 3;
-      const current = startRot + (target - startRot) * eased;
+      const current = startFrom + (target - startFrom) * eased;
       rotationRef.current = current;
       setRotation(current);
       if (t < 1) {
@@ -147,7 +150,7 @@ export default function RouletteWheel({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [spinning, winnerIndex, names.length]);
+  }, [spinning, winnerIndex, names.length, turns]);
 
   if (names.length === 0) {
     return (

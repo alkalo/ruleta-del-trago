@@ -140,6 +140,7 @@ function remapPlayerId(room: RoomState, oldId: string, newId: string): void {
   room.currentTargets = remapIdList(room.currentTargets, oldId, newId);
   room.resolvedTargets = remapIdList(room.resolvedTargets, oldId, newId);
   room.spinPlayerIds = remapIdList(room.spinPlayerIds, oldId, newId);
+  if (room.spinWinnerId === oldId) room.spinWinnerId = newId;
   if (room.lastSelectedId === oldId) room.lastSelectedId = newId;
   if (room.hostId === oldId) room.hostId = newId;
 
@@ -213,6 +214,8 @@ export class RoomManager {
       currentChallenge: null,
       currentTargets: [],
       spinPlayerIds: [],
+      spinWinnerId: null,
+      spinTurns: 6,
       drunkCheckRound: 0,
       sessionAlerts: [],
       customChallenges: [],
@@ -523,6 +526,11 @@ export class RoomManager {
     room.phase = "spinning";
     const active = room.players.filter((p) => p.connected);
     room.spinPlayerIds = active.map((p) => p.id);
+    const candidates = active.filter((p) => p.id !== room.lastSelectedId);
+    const pool = candidates.length > 0 ? candidates : active;
+    const winner = pool[Math.floor(Math.random() * pool.length)];
+    room.spinWinnerId = winner?.id ?? null;
+    room.spinTurns = 6;
     return { room };
   }
 
@@ -545,26 +553,12 @@ export class RoomManager {
     const mode = MODES[Math.floor(Math.random() * MODES.length)];
     room.currentMode = mode;
 
-    let targets: Player[];
-    const pickEveryone = Math.random() < 0.15 && active.length > 2;
-
-    if (pickEveryone) {
-      targets = active;
-    } else if (mode === "todos_contra_uno") {
-      const candidates = active.filter((p) => p.id !== room.lastSelectedId);
-      const pool = candidates.length > 0 ? candidates : active;
-      const target = pool[Math.floor(Math.random() * pool.length)];
-      targets = [target];
-    } else {
-      const candidates = active.filter((p) => p.id !== room.lastSelectedId);
-      const pool = candidates.length > 0 ? candidates : active;
-      const target = pool[Math.floor(Math.random() * pool.length)];
-      targets = mode === "cooperativo" ? active : [target];
-    }
-
-    if (!pickEveryone && targets.length === 1) {
-      room.lastSelectedId = targets[0].id;
-    }
+    const winner =
+      active.find((p) => p.id === room.spinWinnerId) ??
+      active.find((p) => p.id !== room.lastSelectedId) ??
+      active[0];
+    const targets = [winner];
+    room.lastSelectedId = winner.id;
 
     for (const t of targets) {
       t.stats.timesSelected++;
