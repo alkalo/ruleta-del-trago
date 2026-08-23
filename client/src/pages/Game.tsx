@@ -30,7 +30,15 @@ export default function Game() {
   const [winnerIndex, setWinnerIndex] = useState<number | null>(null);
 
   const players = room?.players.filter((p) => p.connected) ?? [];
-  const names = players.map((p) => p.name);
+  const spinNames =
+    room &&
+    room.spinPlayerIds.length > 0 &&
+    (room.phase === "spinning" || localSpinning)
+      ? room.spinPlayerIds
+          .map((id) => room.players.find((p) => p.id === id)?.name)
+          .filter((n): n is string => Boolean(n))
+      : [];
+  const names = spinNames.length > 0 ? spinNames : players.map((p) => p.name);
 
   const spinDisplay = useMemo(() => {
     if (lastSpinResult) return lastSpinResult;
