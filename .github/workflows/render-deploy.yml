@@ -1,0 +1,16 @@
+name: Deploy to Render
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy hook
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "Añade RENDER_DEPLOY_HOOK_URL en GitHub Secrets (Render → Service → Deploy Hook)"
+            exit 1
+          fi
+          curl -fsSL "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

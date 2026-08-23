@@ -28,13 +28,28 @@ Sirve en `PORT` (default 3000). Un solo proceso: API + WebSockets + estáticos.
 
 ## Despliegue web (para que jueguen tus amigos)
 
-Opciones recomendadas (gratis/barato):
+### Opción A — Render (permanente, gratis)
 
-1. **Render** — Web Service, build: `npm install && npm run build`, start: `npm start`
-2. **Railway** — igual
-3. **Fly.io** — con Dockerfile
+1. Abre: https://render.com/deploy?repo=https://github.com/alkalo/ruleta-del-trago
+2. Conecta GitHub y crea el servicio (plan Free).
+3. Tu URL será algo como `https://ruleta-del-trago.onrender.com`
 
-Tras desplegar, comparte la URL. Los amigos abren `/join` o entran el código en lobby.
+El `render.yaml` ya está configurado con Docker + health check.
+
+### Opción B — Túnel Cloudflare (rápido, desde tu PC)
+
+```powershell
+.\scripts\start-cloud.ps1
+```
+
+Genera una URL pública `https://xxx.trycloudflare.com` mientras tu PC esté encendido.
+
+### Opción C — Docker local / VPS
+
+```bash
+docker compose up --build
+```
+
 
 ### Variables de entorno
 
