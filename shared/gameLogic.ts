@@ -283,5 +283,5 @@ export function formatDrinkAmount(amount: number): string {
   if (amount <= 1) return "1 trago";
   if (amount <= 1.5) return "1 trago y medio";
   if (amount <= 2) return "2 tragos";
-  return `${prettyDrinkNumber(amount)} tragos (el grupo dice que te lo has ganado)`;
+  return `${prettyDrinkNumber(amount)} tragos`;
 }

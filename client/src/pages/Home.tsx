@@ -29,8 +29,8 @@ export default function Home() {
         Edición cumple de {BIRTHDAY_NAME}: globos, confeti y brindis extra.
       </p>
       <p className="muted" style={{ marginBottom: 24 }}>
-        La ruleta decide. Tú cumples. El grupo juzga. Objetivo: llegar a fino sin
-        pasarse (7.5–8.5). Meme mode activado.
+        La ruleta elige a una persona. Tú cumples. El grupo juzga. Objetivo:
+        zona 7.5–8.5. Meme mode activado.
       </p>
 
       <div className="card" style={{ marginBottom: 16, borderColor: "var(--cyan)" }}>

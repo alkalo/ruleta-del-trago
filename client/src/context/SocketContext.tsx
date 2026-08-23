@@ -579,6 +579,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     if (!socket) throw new Error("Sin conexión al servidor");
     const res = await playAck(socket, "host:spin", sessionPayload());
     if (res.ok && res.room) {
+      setLastSpinResult(null);
       setRoom(res.room);
       return res.room;
     }

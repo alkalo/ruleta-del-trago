@@ -96,7 +96,7 @@ export default function Lobby() {
 
       {hasBirthdayPlayer(players) && (
         <div className="alert-banner birthday-spin-toast">
-          🎂 {BIRTHDAY_NAME} está en la sala. ¡Hoy se brinda por el cumpleañero!
+          🎂 {BIRTHDAY_NAME} está en la sala. ¡Hoy se brinda por el cumple!
         </div>
       )}
 

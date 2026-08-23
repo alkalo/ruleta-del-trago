@@ -107,9 +107,9 @@ export default function Game() {
       void completeSpin().catch(() => {
         completeOnceRef.current = false;
       });
-    }, iStartedSpin ? 8000 : 1500);
+    }, 4500);
     return () => window.clearTimeout(t);
-  }, [isHost, room?.phase, completeSpin, iStartedSpin]);
+  }, [isHost, room?.phase, completeSpin]);
 
   const handleSpin = async () => {
     if (!canSpin) return;
@@ -160,7 +160,7 @@ export default function Game() {
 
   const onSpinComplete = useCallback(async () => {
     setLocalSpinning(false);
-    if (!iStartedSpin && !isHost) return;
+    if (!isHost) return;
     if (completeOnceRef.current) return;
     completeOnceRef.current = true;
     try {
@@ -273,9 +273,7 @@ export default function Game() {
             spinning={localSpinning || phase === "spinning"}
             winnerIndex={syncedWinner}
             turns={room.spinTurns || 6}
-            onSpinComplete={
-              iStartedSpin || isHost ? onSpinComplete : undefined
-            }
+            onSpinComplete={isHost ? onSpinComplete : undefined}
           />
 
           {isHost && (
@@ -306,7 +304,11 @@ export default function Game() {
             </p>
           )}
 
-          {challenge && mode && (spin || targets.length > 0) && (
+          {phase === "challenge" &&
+            !localSpinning &&
+            challenge &&
+            mode &&
+            (spin || targets.length > 0) && (
             <>
               {targets.length > 1 && (
                 <p className="muted" style={{ textAlign: "center" }}>

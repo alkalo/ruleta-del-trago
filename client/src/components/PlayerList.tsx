@@ -40,7 +40,8 @@ export default function PlayerList({ players, title }: Props) {
             <span className="muted">{p.drunkLevel}/10 (última pausa)</span>
           </div>
           <div className="muted" style={{ fontSize: "0.75rem" }}>
-            🍺 {p.stats.drinksTaken} · ✓ {p.stats.challengesCompleted}
+            🍺 {Math.round(p.stats.drinksTaken * 10) / 10} · ✓{" "}
+            {p.stats.challengesCompleted}
           </div>
         </div>
       ))}

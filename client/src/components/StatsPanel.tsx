@@ -15,7 +15,7 @@ export default function StatsPanel({ players }: Props) {
       <h3>📊 Stats de sesión</h3>
       {mvp && mvp.stats.drinksTaken > 0 && (
         <p className="muted">
-          MVP del caos: <strong>{mvp.name}</strong> ({mvp.stats.drinksTaken} tragos)
+          MVP del caos: <strong>{mvp.name}</strong> ({Math.round(mvp.stats.drinksTaken * 10) / 10} tragos)
         </p>
       )}
       <div className="stats-grid">
@@ -24,8 +24,8 @@ export default function StatsPanel({ players }: Props) {
             <div className="stat-value">{p.drunkLevel}</div>
             <div className="stat-label">{p.name} · última pausa</div>
             <div className="muted" style={{ fontSize: "0.65rem" }}>
-              🍺{p.stats.drinksTaken} · 🎯{p.stats.timesSelected} · ✓
-              {p.stats.challengesCompleted}
+              🍺{Math.round(p.stats.drinksTaken * 10) / 10} · 🎯
+              {p.stats.timesSelected} · ✓{p.stats.challengesCompleted}
             </div>
           </div>
         ))}

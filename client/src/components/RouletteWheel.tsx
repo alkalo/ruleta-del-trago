@@ -101,6 +101,16 @@ export default function RouletteWheel({
   completeRef.current = onSpinComplete;
 
   useEffect(() => {
+    if (spinning) return;
+    if (winnerIndex === null || names.length === 0) return;
+    const count = names.length;
+    const safeWinner = ((winnerIndex % count) + count) % count;
+    const parked = landingModulo(safeWinner, count);
+    rotationRef.current = parked;
+    setRotation(parked);
+  }, [spinning, winnerIndex, names.length]);
+
+  useEffect(() => {
     if (!spinning) return;
     if (names.length === 0) {
       completeRef.current?.();

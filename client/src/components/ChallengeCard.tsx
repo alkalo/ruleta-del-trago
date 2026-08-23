@@ -55,7 +55,7 @@ export default function ChallengeCard({
 
       {drinksAlcohol && skipDiffers && skipAmount !== undefined && (
         <p className="muted">
-          Si pasa el reto: {formatDrinkAmount(skipAmount)} (también adaptado)
+          Si no lo haces: {formatDrinkAmount(skipAmount)} (también adaptado)
         </p>
       )}
 
@@ -75,7 +75,7 @@ export default function ChallengeCard({
                 onDrank();
               }}
             >
-              He bebido {formatDrinkAmount(drinkAmount)} 🍻
+              He bebido 🍻
             </button>
           )}
           <button
@@ -95,7 +95,7 @@ export default function ChallengeCard({
             }}
           >
             {drinksAlcohol && skipAmount !== undefined
-              ? `No quiero / bebo ${formatDrinkAmount(skipAmount)}`
+              ? "No quiero / bebo penalización"
               : "No quiero / castigo sobrio"}
           </button>
         </div>

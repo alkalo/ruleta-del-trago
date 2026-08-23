@@ -526,8 +526,10 @@ export class RoomManager {
     room.phase = "spinning";
     const active = room.players.filter((p) => p.connected);
     room.spinPlayerIds = active.map((p) => p.id);
-    const candidates = active.filter((p) => p.id !== room.lastSelectedId);
-    const pool = candidates.length > 0 ? candidates : active;
+    const pickable = active.filter((p) => this.pickChallenge(room, [p]));
+    const source = pickable.length > 0 ? pickable : active;
+    const candidates = source.filter((p) => p.id !== room.lastSelectedId);
+    const pool = candidates.length > 0 ? candidates : source;
     const winner = pool[Math.floor(Math.random() * pool.length)];
     room.spinWinnerId = winner?.id ?? null;
     room.spinTurns = 6;
