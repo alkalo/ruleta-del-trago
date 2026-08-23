@@ -79,6 +79,7 @@ export class RoomManager {
       sessionAlerts: [],
       customChallenges: [],
       activeSpin: null,
+      resolvedTargets: [],
     };
 
     this.rooms.set(code, room);
@@ -233,6 +234,13 @@ export class RoomManager {
     if (!room || room.hostId !== hostId) return null;
     if (room.phase !== "challenge") return null;
 
+    if (room.activeSpin) {
+      const pending = room.activeSpin.targets.filter(
+        (id) => !room.resolvedTargets.includes(id)
+      );
+      if (pending.length > 0) return null;
+    }
+
     if (shouldTriggerDrunkCheck(room.round)) {
       room.phase = "drunk_check";
       room.drunkCheckRound++;
@@ -324,6 +332,7 @@ export class RoomManager {
       soberAlternatives,
       displayTexts,
     };
+    room.resolvedTargets = [];
 
     // Warning for heavy penalties
     for (const target of targets) {

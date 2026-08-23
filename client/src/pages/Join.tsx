@@ -38,7 +38,7 @@ export default function Join() {
       alert(
         typeof e === "string"
           ? e
-          : "No se pudo unir. ¿Código correcto y sala en lobby?"
+          : "No se pudo unir. ¿Código correcto? Si la partida ya empezó, usa el mismo nombre."
       );
     } finally {
       setLoading(false);

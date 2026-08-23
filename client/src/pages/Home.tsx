@@ -25,6 +25,18 @@ export default function Home() {
         pasarse (7.5–8.5). Meme mode activado.
       </p>
 
+      <div className="card" style={{ marginBottom: 16, borderColor: "var(--cyan)" }}>
+        <p className="muted" style={{ margin: 0 }}>
+          🌐 Juego online:{" "}
+          <a
+            href="https://ruleta-del-trago.onrender.com"
+            style={{ color: "var(--cyan)" }}
+          >
+            ruleta-del-trago.onrender.com
+          </a>
+        </p>
+      </div>
+
       {!connected && (
         <div className="alert-banner alert-warning">
           Conectando al servidor… Si tarda, arranca con <code>npm run dev</code>

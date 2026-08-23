@@ -186,6 +186,32 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const updateHostProfile = useCallback(
     (data: { name?: string; drunkLevel?: number; drinksAlcohol?: boolean }) => {
       if (socket) socket.emit("host:updateProfile", data);
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (raw) {
+        try {
+          const session = JSON.parse(raw) as {
+            code: string;
+            name: string;
+            drunkLevel: number;
+            drinksAlcohol: boolean;
+          };
+          sessionStorage.setItem(
+            SESSION_KEY,
+            JSON.stringify({
+              ...session,
+              ...(data.name ? { name: data.name } : {}),
+              ...(data.drunkLevel !== undefined
+                ? { drunkLevel: data.drunkLevel }
+                : {}),
+              ...(data.drinksAlcohol !== undefined
+                ? { drinksAlcohol: data.drinksAlcohol }
+                : {}),
+            })
+          );
+        } catch {
+          /* ignore */
+        }
+      }
     },
     [socket]
   );

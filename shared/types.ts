@@ -84,6 +84,7 @@ export interface RoomState {
   sessionAlerts: SessionAlert[];
   customChallenges: Challenge[];
   activeSpin: SpinResult | null;
+  resolvedTargets: string[];
 }
 
 export interface SessionAlert {
