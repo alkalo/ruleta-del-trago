@@ -115,8 +115,16 @@ if (gayHard.length < 8) {
   );
 }
 
+const seenRecent: string[] = [];
 for (let i = 0; i < 40; i++) {
-  const pick = selectChallenge(pack, settingsGayPhys, i);
+  const pick = selectChallenge(
+    pack,
+    settingsGayPhys,
+    i,
+    [],
+    Math.random,
+    seenRecent
+  );
   if (!pick.ok) {
     fail(`selectChallenge falló en ronda ${i}: ${pick.reason}`);
     break;
@@ -129,6 +137,11 @@ for (let i = 0; i < 40; i++) {
     fail(`Se coló un minigame: ${pick.challenge.id}`);
     break;
   }
+  if (i > 0 && pick.challenge.id === seenRecent[seenRecent.length - 1]) {
+    fail(`Mismo reto dos veces seguidas: ${pick.challenge.id}`);
+    break;
+  }
+  seenRecent.push(pick.challenge.id);
 }
 
 const failSettings: GameSettings = {

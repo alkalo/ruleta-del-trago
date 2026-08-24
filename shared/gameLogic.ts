@@ -123,14 +123,30 @@ export type ChallengePick =
  * Si el pool ideal está vacío, relaja: cercanía de contenido → intensity → vibes.
  * Nunca “cualquier reto”.
  */
+const MIN_TIER_CHOICES = 6;
+
+function poolWithoutRecent(
+  hard: Challenge[],
+  excludeIds: string[]
+): Challenge[] {
+  if (hard.length === 0 || excludeIds.length === 0) return hard;
+  const unused = hard.filter((c) => !excludeIds.includes(c.id));
+  if (unused.length >= Math.min(MIN_TIER_CHOICES, hard.length)) return unused;
+  const lastFew = new Set(excludeIds.slice(-3));
+  const notLast = hard.filter((c) => !lastFew.has(c.id));
+  return notLast.length > 0 ? notLast : hard;
+}
+
 export function selectChallenge(
   all: Challenge[],
   settings: GameSettings,
   round: number,
   players: GenderedPlayer[] = [],
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  excludeIds: string[] = []
 ): ChallengePick {
-  const hard = filterHardConstraints(all, settings, players);
+  const constrained = filterHardConstraints(all, settings, players);
+  const hard = poolWithoutRecent(constrained, excludeIds);
   if (hard.length === 0) {
     return { ok: false, reason: NO_MATCHING_CHALLENGE };
   }
@@ -161,13 +177,25 @@ export function selectChallenge(
   ];
 
   for (const tier of tiers) {
-    if (tier.pool.length > 0) {
+    if (tier.pool.length >= MIN_TIER_CHOICES) {
       return {
         ok: true,
         challenge: weightedPick(tier.pool, settings, rng),
         relaxed: tier.relaxed,
       };
     }
+  }
+
+  let fallback = tiers[0];
+  for (const tier of tiers) {
+    if (tier.pool.length > fallback.pool.length) fallback = tier;
+  }
+  if (fallback.pool.length > 0) {
+    return {
+      ok: true,
+      challenge: weightedPick(fallback.pool, settings, rng),
+      relaxed: fallback.relaxed,
+    };
   }
 
   return { ok: false, reason: NO_MATCHING_CHALLENGE };
@@ -212,7 +240,7 @@ export function getSkipPenaltyDrinks(
 }
 
 export function getIntensityMin(round: number): number {
-  return Math.min(10, 1 + Math.floor(round / 2));
+  return Math.min(6, 1 + Math.floor(round / 4));
 }
 
 export function isFino(drunkLevel: number): boolean {

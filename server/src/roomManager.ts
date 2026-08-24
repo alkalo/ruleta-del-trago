@@ -13,7 +13,6 @@ import { normalizeGender } from "../../shared/types.js";
 import {
   adjustDrinksForDrunkLevel,
   contentLevelAllowed,
-  getIntensityMin,
   getSkipPenaltyDrinks,
   isFino,
   isInSweetSpot,
@@ -45,6 +44,28 @@ function emptyStats(): PlayerStats {
     challengesSkipped: 0,
     penaltiesTaken: 0,
   };
+}
+
+function pickLeastRecentWinner(source: Player[], room: RoomState): Player {
+  const recent = room.recentWinnerIds ?? [];
+  const avoidCount = Math.min(
+    Math.max(source.length - 1, 0),
+    source.length >= 3 ? 2 : 1
+  );
+  const avoid = new Set(recent.slice(-avoidCount));
+  let candidates = source.filter((p) => !avoid.has(p.id));
+  if (candidates.length === 0) {
+    candidates = source.filter((p) => p.id !== room.lastSelectedId);
+  }
+  if (candidates.length === 0) candidates = source;
+  const weights = candidates.map((p) => 1 / (1 + (p.stats.timesSelected ?? 0)));
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  let roll = Math.random() * total;
+  for (let i = 0; i < candidates.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return candidates[i];
+  }
+  return candidates[candidates.length - 1];
 }
 
 function generateCode(): string {
@@ -142,6 +163,7 @@ function remapPlayerId(room: RoomState, oldId: string, newId: string): void {
   room.spinPlayerIds = remapIdList(room.spinPlayerIds, oldId, newId);
   if (room.spinWinnerId === oldId) room.spinWinnerId = newId;
   if (room.lastSelectedId === oldId) room.lastSelectedId = newId;
+  room.recentWinnerIds = remapIdList(room.recentWinnerIds ?? [], oldId, newId);
   if (room.hostId === oldId) room.hostId = newId;
 
   if (room.activeSpin) {
@@ -210,6 +232,8 @@ export class RoomManager {
       hostId,
       round: 0,
       lastSelectedId: null,
+      recentChallengeIds: [],
+      recentWinnerIds: [],
       currentMode: null,
       currentChallenge: null,
       currentTargets: [],
@@ -514,11 +538,11 @@ export class RoomManager {
     if (active.length === 0) {
       return { room: null, error: "No hay jugadores conectados para girar." };
     }
-    const pickable = active.filter((p) => this.pickChallenge(room, [p]));
+    const pickable = active.filter((p) =>
+      this.pickChallenge(room, [p], { excludeRecent: false })
+    );
     const source = pickable.length > 0 ? pickable : active;
-    const candidates = source.filter((p) => p.id !== room.lastSelectedId);
-    const pool = candidates.length > 0 ? candidates : source;
-    const winner = pool[Math.floor(Math.random() * pool.length)];
+    const winner = pickLeastRecentWinner(source, room);
     if (!winner) {
       return { room: null, error: "No hay jugadores para girar." };
     }
@@ -557,7 +581,7 @@ export class RoomManager {
     room.currentMode = mode;
     const targets = [winner];
 
-    const challenge = this.pickChallenge(room, targets);
+    const challenge = this.pickChallenge(room, targets, { excludeRecent: true });
     if (!challenge) {
       room.round--;
       room.phase = "challenge";
@@ -567,6 +591,11 @@ export class RoomManager {
     }
 
     room.lastSelectedId = winner.id;
+    room.recentWinnerIds = [...(room.recentWinnerIds ?? []), winner.id].slice(-12);
+    room.recentChallengeIds = [
+      ...(room.recentChallengeIds ?? []),
+      challenge.id,
+    ].slice(-40);
     for (const t of targets) {
       t.stats.timesSelected++;
     }
@@ -885,7 +914,11 @@ export class RoomManager {
     return room;
   }
 
-  private pickChallenge(room: RoomState, targets: Player[] = []): Challenge | null {
+  private pickChallenge(
+    room: RoomState,
+    targets: Player[] = [],
+    opts: { excludeRecent?: boolean } = {}
+  ): Challenge | null {
     if (!room.settings) return null;
 
     const all = getAllChallenges(room.customChallenges);
@@ -912,7 +945,16 @@ export class RoomManager {
     });
 
     if (filtered.length === 0) return null;
-    const picked = selectChallenge(filtered, room.settings, room.round);
+    const exclude =
+      opts.excludeRecent === false ? [] : room.recentChallengeIds ?? [];
+    const picked = selectChallenge(
+      filtered,
+      room.settings,
+      room.round,
+      [],
+      Math.random,
+      exclude
+    );
     return picked.ok ? picked.challenge : null;
   }
 

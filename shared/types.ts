@@ -89,6 +89,10 @@ export interface RoomState {
   hostId: string;
   round: number;
   lastSelectedId: string | null;
+  /** Últimos retos servidos; se evitan para no repetir la misma carta. */
+  recentChallengeIds: string[];
+  /** Últimos elegidos de la ruleta; se evitan para no ping-pongear. */
+  recentWinnerIds: string[];
   currentMode: GameMode | null;
   currentChallenge: Challenge | null;
   currentTargets: string[];
